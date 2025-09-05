@@ -1,14 +1,27 @@
 import { Controller, Get, Post, Body, Patch, Param, Delete } from '@nestjs/common';
-import { AuthService } from './auth.service';
-import { CreateAuthDto } from './dto/create-auth.dto';
-import { UpdateAuthDto } from './dto/update-auth.dto';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+import { Throttle } from '@nest/throttle';
+import { JwtAuthGuard } from '../auth/guards/jwt.guard';
 
+
+import { AuthService } from './auth.service';
+import { CreateAuthDto } from './dto/create-register.dto';
+import { UpdateAuthDto } from './dto/update-register.dto';
+
+@ApiTags('Auth')
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
+  // attempts, seconds
+  @Throttle(50, 60)
+  @Post('login')
+  loginUser(@Body() CreateRegisterDto: AuthService){
+    return this.authService.createUser(CreateRegisterDto);
+  }
+
   @Post()
-  create(@Body() createAuthDto: CreateAuthDto) {
+  create(@Body() createAuthDto: CreateAuthDto) { 
     return this.authService.create(createAuthDto);
   }
 
