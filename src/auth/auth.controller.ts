@@ -1,3 +1,4 @@
+// src/auth/auth.controller.ts
 import { Controller, Get, Post, Body, Patch, Param, Delete } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
@@ -11,20 +12,14 @@ import { UpdateRegisterDto } from './dto/update-register.dto';
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
-  @Post('register')
   @ApiOperation({ summary: 'Register new user' })
   @ApiResponse({ status: 201, description: 'User created successfully' })
   @ApiResponse({ status: 400, description: 'Validation error' })
   @ApiResponse({ status: 409, description: 'User already exists' })
   @Throttle({ default: { limit: 50, ttl: 60000 } })
-  @Post('login')
+  @Post('register')
   async register(@Body() createRegisterDto: CreateRegisterDto) {
     return this.authService.createUser(createRegisterDto);
-  }
-
-  @Post()
-  create(@Body() createAuthDto: CreateRegisterDto) { 
-    return this.authService.createUser(createAuthDto);
   }
 
   @Get()
@@ -35,11 +30,6 @@ export class AuthController {
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.authService.findOne(+id);
-  }
-
-  @Patch(':id')
-  update(@Param('id') id: string, @Body() updateAuthDto: UpdateRegisterDto) {
-    return this.authService.update(+id, updateAuthDto);
   }
 
   @Delete(':id')
