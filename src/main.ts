@@ -13,7 +13,7 @@ async function bootstrap() {
       forbidNonWhitelisted: true,
     }),
   );
- 
+
   await app.listen(envs.port);
   logger.log(`Application is running on: ${envs.port}`);
 }
