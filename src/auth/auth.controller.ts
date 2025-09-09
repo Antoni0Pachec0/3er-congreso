@@ -3,9 +3,9 @@ import { Controller, Get, Post, Body, Patch, Param, Delete } from '@nestjs/commo
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 
-import { AuthService } from './auth.service';
-import { CreateRegisterDto } from './dto/create-register.dto';
-import { UpdateRegisterDto } from './dto/update-register.dto';
+import { AuthService } from '@/auth/auth.service';
+import { CreateUserDto } from '@/auth/dto/create-user.dto';
+import { UpdateRegisterDto } from '@/auth/dto/update-register.dto';
 
 @ApiTags('Auth')
 @Controller('auth')
@@ -18,8 +18,8 @@ export class AuthController {
   @ApiResponse({ status: 409, description: 'User already exists' })
   @Throttle({ default: { limit: 50, ttl: 60000 } })
   @Post('register')
-  async register(@Body() createRegisterDto: CreateRegisterDto) {
-    return this.authService.createUser(createRegisterDto);
+  async createUserCtr(@Body() CreateUserDto: CreateUserDto) {
+    return this.authService.createrUserSrv(CreateUserDto);
   }
 
   @Get()

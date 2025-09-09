@@ -4,7 +4,7 @@ import {
 } from 'class-validator';
 import { Transform } from 'class-transformer';
 
-export class CreateRegisterDto {
+export class CreateUserDto {
 
   /** User's first name */
   @ApiProperty({ example: 'Jony', description: 'User name' })

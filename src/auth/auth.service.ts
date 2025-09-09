@@ -4,8 +4,8 @@ import {
   ConflictException,
   InternalServerErrorException,
 } from '@nestjs/common';
-import { PrismaService } from '../../prisma/prisma.service';
-import { CreateRegisterDto } from './dto/create-register.dto';
+import { PrismaService } from '@prisma/prisma.service';
+import { CreateUserDto } from '@/auth/dto/create-user.dto';
 import * as bcrypt from 'bcrypt';
 import { Prisma } from '@prisma/client'; // Importa Prisma en lugar del tipo específico
 
@@ -13,7 +13,7 @@ import { Prisma } from '@prisma/client'; // Importa Prisma en lugar del tipo esp
 export class AuthService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async createUser(dto: CreateRegisterDto) {
+  async createrUserSrv(dto: CreateUserDto) {
     // 1. Normalizar email
     const email = dto.email.toLowerCase().trim();
 
