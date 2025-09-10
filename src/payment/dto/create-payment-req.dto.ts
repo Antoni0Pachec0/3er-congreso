@@ -9,7 +9,6 @@ export class CreatePaymentReqDto {
     //nada puede ir vacio y debe cumplir con su tipo
     @ApiProperty()
     @IsNumber()
-    @IsNotEmpty()
     installments: number;
 
     @ApiProperty()
