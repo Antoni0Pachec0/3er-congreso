@@ -2,9 +2,11 @@ import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { ConfigType } from '@nestjs/config';
 import paymentConfig from '../../config/payment.config';
 import { randomUUID } from 'crypto';
-import { CreatePaymentBodyDto } from '../dto/create-payment-body-req.dtp';
+import { CreatePaymentBodyDto } from '../dto/create-payment-body-req.dto';
 import { CreatePaymentReqDto } from '../dto/create-payment-req.dto';
 import { HttpService } from '@nestjs/axios/dist/http.service';
+import { CreatePaymentResDto } from '../dto/create-payment-res.dto';
+import { plainToInstance } from 'class-transformer';
 @Injectable()
 export class PaymentCardService {
     constructor(
@@ -12,8 +14,7 @@ export class PaymentCardService {
         private readonly paymentConfigService: ConfigType<typeof paymentConfig>,
         private readonly httpService: HttpService,
     ) {}
-    async createPayment(body: CreatePaymentReqDto) {
-        // Lógica para crear una tarjeta de pago
+    async createPayment(body: CreatePaymentReqDto) : Promise<CreatePaymentResDto>{
         const xIdempotencyKey = randomUUID();
         const bearerToken = this.paymentConfigService.paymentMarket.accessToken;
         const paymentBodyReq: CreatePaymentBodyDto = {
@@ -42,7 +43,9 @@ export class PaymentCardService {
                 },
             },
         );
-        return response.data;
+        return plainToInstance(CreatePaymentResDto,  response.data, { 
+            excludeExtraneousValues: true,
+        });
         } catch (error) {
             console.error(error);
             throw new BadRequestException('Error processing payment');
