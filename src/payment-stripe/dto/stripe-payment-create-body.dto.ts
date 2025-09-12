@@ -1,5 +1,5 @@
 // src/payment/stripe/dto/checkout-session.dto.ts
-import { IsArray, IsString, IsUrl, ValidateNested } from 'class-validator';
+import { IsArray, IsOptional, IsString, IsUrl, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 
 class LineItemDto {
@@ -16,12 +16,15 @@ export class CreateCheckoutSessionDto {
     @Type(() => LineItemDto)
     items: LineItemDto[];  
 
+    @IsOptional()
     @IsUrl()
     successUrl?: string;
 
+    @IsOptional()
     @IsUrl()
     cancelUrl?: string;
 
+    @IsOptional()
     @IsUrl()
     returnUrl?: string;
 }
