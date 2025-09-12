@@ -66,14 +66,14 @@
                     id: "form-checkout__issuer",
                     placeholder: "Banco emisor",
                 },
-                installments: {
+                /*installments: {
                     id: "form-checkout__installments",
                     placeholder: "Cuotas",
                 },
                 cardholderEmail: {
                     id: "form-checkout__cardholderEmail",
                     placeholder: "E-mail",
-                },
+                },*/
             },
             callbacks: {
                 onFormMounted: error => {
@@ -90,8 +90,8 @@
                         amount,
                         token,
                         installments,
-                        identificationNumber,
-                        identificationType,
+                        /*identificationNumber,
+                        identificationType,*/
                     } = cardForm.getCardFormData();
                     
                     console.log(token)

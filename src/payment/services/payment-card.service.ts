@@ -18,7 +18,7 @@ export class PaymentCardService {
         const bearerToken = this.paymentConfigService.paymentMarket.accessToken;
         const paymentBodyReq: CreatePaymentBodyDto = {
             description:body.description,
-            installments: 1,
+            installments: body.installments,
             token: body.token,
             transaction_amount:body.transactionAmount,
             payment_method_id: body.paymentMethodId,

@@ -1,49 +1,85 @@
 import { ApiProperty } from "@nestjs/swagger";
-import { IsEmail, IsNotEmpty, IsNumber, IsString } from "class-validator";
+import { IsEmail, IsNotEmpty, IsNumber, IsString, Min, Max } from "class-validator";
 
+/**
+ * DTO para la creación de un nuevo pago a través de MercadoPago
+ * 
+ * Este DTO sigue la estructura requerida por la API de MercadoPago:
+ * https://www.mercadopago.com.ar/developers/es/reference/payments/_payments/post/
+ */
 export class CreatePaymentReqDto {
-    //cada una de las propiedades que se van a enviar en el body
-    //para la creacion del pago
-    //segun la documentacion de mercadopago
-    //https://www.mercadopago.com.ar/developers/es/reference/payments/_payments/post/
-    //nada puede ir vacio y debe cumplir con su tipo
-    @ApiProperty()
+    @ApiProperty({
+        description: 'Número de cuotas para el pago',
+        example: 1,
+        minimum: 1,
+        default: 1
+    })
     @IsNumber()
+    
     installments: number;
 
-    @ApiProperty()
+    @ApiProperty({
+        description: 'Monto total de la transacción',
+        example: 350.50,
+        minimum: 1
+    })
     @IsNumber()
     @IsNotEmpty()
+    @Min(1)
     transactionAmount: number;
 
-    @ApiProperty()
+    @ApiProperty({
+        description: 'Descripción del pago',
+        example: 'Pago de congreso',
+        maxLength: 256
+    })
     @IsString()
     @IsNotEmpty()
     description: string;
 
-    @ApiProperty()
+    @ApiProperty({
+        description: 'Token de tarjeta generado por el SDK de MercadoPago',
+        example: '2c933e94-5ab4-4321-9010-c35aad8bg2cc',
+        required: true
+    })
     @IsString()
     @IsNotEmpty()
     token: string;
 
-    @ApiProperty()
+    @ApiProperty({
+        description: 'Identificador del método de pago',
+        example: 'visa',
+        required: true
+    })
     @IsString()
     @IsNotEmpty()
     paymentMethodId: string;
 
-    @ApiProperty()
+    @ApiProperty({
+        description: 'Correo electrónico del pagador',
+        example: 'comprador@email.com',
+        required: true
+    })
     @IsString()
     @IsEmail()
     @IsNotEmpty()
     email: string;
 
-    @ApiProperty()
+    @ApiProperty({
+        description: 'Tipo de identificación del pagador',
+        example: 'DNI',
+        required: true
+    })
     @IsString()
-    @IsNotEmpty()
+    
     identificationType: string;
 
-    @ApiProperty()
+    @ApiProperty({
+        description: 'Número de identificación del pagador',
+        example: '12345678',
+        required: true
+    })
     @IsString()
-    @IsNotEmpty()
+    
     identificationNumber: string;
 }

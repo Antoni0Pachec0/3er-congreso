@@ -5,5 +5,12 @@ export default registerAs('payment', () => ({
         accessToken: process.env.PAYMENT_ACCESS_TOKEN || '',
         // Otras opciones de configuración para payment market
     },
-    // Otras secciones de configuración relacionadas con pagos
+    stripe: {
+        secretKey: process.env.STRIPE_SECRET_KEY || '',
+        publicKey: process.env.STRIPE_PUBLIC_KEY || '',
+        webhookSecret: process.env.STRIPE_WEBHOOK_SECRET || '',
+        domain: process.env.APP_DOMAIN || 'http://localhost:3000',
+    }
 }));
+
+
