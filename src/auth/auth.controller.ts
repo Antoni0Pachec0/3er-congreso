@@ -1,15 +1,24 @@
-import { Controller, Post, Body, Get, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Post, Body, Get, UseGuards, HttpCode, HttpStatus, Req } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
-import { JwtAuthGuard } from '@auth/guards/jwt.guard'; // Para proteger rutas con JWT
-import { AuthService } from '@auth/auth.service'; // Servicio de autenticación
-import { CreateUserDto } from '@auth/dto/create-user.dto'; // DTO para crear usuario
-import { CreateLoginDto } from '@auth/dto/create-login.dto'; // DTO para login
-import { VerifyCodeDto } from '@auth/dto/verify-code.dto'; // DTO para verificar código
-import { ResendCodeDto } from '@auth/dto/resend-code.dto'; // DTO para reenvío de código
+import { JwtAuthGuard } from '@auth/guards/jwt.guard';
+import { AuthService } from '@auth/auth.service';
+import { CreateUserDto } from '@auth/dto/create-user.dto';
+import { CreateLoginDto } from '@auth/dto/create-login.dto';
+import { VerifyCodeDto } from '@auth/dto/verify-code.dto';
+import { ResendCodeDto } from '@auth/dto/resend-code.dto';
+import { Request } from 'express';
 
-@ApiTags('Auth') // Etiqueta para Swagger
-@Controller('auth') // Prefijo para las rutas
+// Interfaz para el usuario en el request JWT
+interface AuthenticatedRequest extends Request {
+  user: {
+    userId: number;
+    email: string;
+  };
+}
+
+@ApiTags('Auth')
+@Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
@@ -51,23 +60,39 @@ export class AuthController {
 
   // Obtener perfil del usuario (requiere JWT)
   @ApiOperation({ summary: 'Get current authenticated user profile' })
-  @ApiBearerAuth() // Indica que se requiere un token JWT en el header
+  @ApiBearerAuth()
   @ApiResponse({ status: 200, description: 'Successfully fetched user profile' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
-  @UseGuards(JwtAuthGuard) // Protege esta ruta con un guard JWT
+  @UseGuards(JwtAuthGuard)
   @Get('me')
-  async getProfile(@Body() user) {
-    return this.authService.getProfile(user.userId); // Aquí debes obtener datos del usuario autenticado
+  async getProfile(@Req() req: AuthenticatedRequest) {
+    // El guard JWT ya validó y adjuntó el usuario al request
+    return this.authService.getProfile(req.user.userId);
   }
 
-  // Cerrar sesión (invalidar JWT)
-  @ApiOperation({ summary: 'Logout user (invalidate JWT)' })
+  // Cerrar sesión (invalidar refresh token)
+  @ApiOperation({ summary: 'Logout user (invalidate refresh token)' })
   @ApiBearerAuth()
-  @ApiResponse({ status: 204, description: 'Successfully logged out' })
-  @HttpCode(HttpStatus.NO_CONTENT) // No content porque no devuelve respuesta
+  @ApiResponse({ status: 200, description: 'Successfully logged out' })
   @UseGuards(JwtAuthGuard)
   @Post('logout')
-  async logout(@Body() user) {
-    return this.authService.logout(user.userId); // Invalidar refresh token o sesión
+  async logout(@Req() req: AuthenticatedRequest, @Body() body: { refresh_token: string }) {
+    // Necesitamos el refresh token para invalidarlo específicamente
+    if (!body.refresh_token) {
+      throw new Error('Refresh token is required for logout');
+    }
+    return this.authService.logout(req.user.userId, body.refresh_token);
+  }
+
+  // Refresh token (obtener nuevos tokens)
+  @ApiOperation({ summary: 'Refresh access token using refresh token' })
+  @ApiResponse({ status: 200, description: 'Tokens refreshed successfully' })
+  @ApiResponse({ status: 401, description: 'Invalid refresh token' })
+  @Post('refresh')
+  async refreshToken(@Body() body: { refresh_token: string }) {
+    if (!body.refresh_token) {
+      throw new Error('Refresh token is required');
+    }
+    return this.authService.refreshToken(body.refresh_token);
   }
 }

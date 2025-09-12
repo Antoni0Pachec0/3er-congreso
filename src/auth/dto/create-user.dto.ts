@@ -1,6 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import {
-  IsString, IsNotEmpty, IsEmail, MaxLength, MinLength, Length, Matches, IsOptional
+  IsString, IsNotEmpty, IsEmail, MaxLength, MinLength, Length, Matches, IsOptional, IsNumberString
 } from 'class-validator';
 import { Transform } from 'class-transformer';
 
@@ -17,7 +17,7 @@ export class CreateUserDto {
   })
   // NOTE: Transform runs before validation if ValidationPipe has transform:true
   @Transform(({ value }) => value?.trim().replace(/\s+/g, ' '))
-  public name: string;
+  public name_user: string;
 
   /** User's paternal surname */
   @ApiProperty({ example: 'Smith', description: 'Paternal surname' })
@@ -73,7 +73,7 @@ export class CreateUserDto {
   // Normalize: remove spaces/dashes so it matches +52##########
   @Transform(({ value }) => typeof value === 'string'
     ? value.replace(/[\s-]/g, '') : value)
-  public phone_emergency: string;
+  public emergency_phone: string;
 
   /** User email (lowercased) */
   @ApiProperty({ example: 'example@gmail.com', description: 'User email' })
@@ -91,7 +91,7 @@ export class CreateUserDto {
   @Matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).+$/, {
   message: 'Incluye mayúscula, minúscula, número y un caracter especial',
   })
-  public password: string;
+  public password_user: string;
 
   /** University name (letters, spaces and digits, no symbols) */
   @ApiProperty({ example: 'Harvard', description: 'User university' })
@@ -102,7 +102,7 @@ export class CreateUserDto {
     message: 'La universidad solo puede contener letras, espacios y números (sin símbolos)',
   })
   @Transform(({ value }) => value?.trim().replace(/\s+/g, ' '))
-  public university: string;
+  public provenance: string;
 
   /** Educational program (optional text) */
   @ApiProperty({ example: 'IT', description: 'Educational program' })
@@ -126,21 +126,40 @@ export class CreateUserDto {
   @IsString({ message: 'El grupo debe ser texto' })
   @MaxLength(30, { message: 'El grupo es demasiado largo' })
   @Transform(({ value }) => value?.trim())
-  public group?: string;
+  public group_user?: string;
+
+  /** Selected size_user */
+  @ApiProperty({ example: 'G', description: 'Selected size user' })
+  @IsString({ message: 'La talla de la playera debe de ser texto' })
+  @MaxLength(10, { message: 'La talla es demaciado grande' })
+  @Transform(({ value }) => value?.trim())
+  public size_user: string;
 
   /** Selected kit (catalog/text) */
-  @ApiProperty({ example: '1 (Professional kit)', description: 'Selected kit' })
+  @ApiProperty({ example: '1', description: 'Selected kit ID' })
   @IsOptional()
-  @IsString({ message: 'El kit debe ser texto' })
-  @MaxLength(60, { message: 'El kit es demasiado largo' })
+  @IsNumberString({}, { message: 'El kit debe ser un número' })
   @Transform(({ value }) => value?.trim())
-  public kit?: string;
+  public kit_id?: string;
 
   /** Selected workshop (catalog/text) */
-  @ApiProperty({ example: 'Machine Learning', description: 'Selected workshop' })
+  @ApiProperty({ example: '1', description: 'Selected workshop ID' })
   @IsOptional()
-  @IsString({ message: 'El taller debe ser texto' })
-  @MaxLength(120, { message: 'El taller es demasiado largo' })
+  @IsNumberString({}, { message: 'El taller debe ser un número' })
   @Transform(({ value }) => value?.trim())
-  public workshop?: string;
+  public workshop_id?: string;
+
+  /** Selected type user */
+  @ApiProperty({ example: '1' })
+  @IsOptional()  // ← Hacer opcional
+  @IsNumberString({}, { message: 'El tipo de usuario debe ser un número' })
+  @Transform(({ value }) => value?.trim())
+  public type_user_id?: string;
+
+/** status predeterminated */
+  @ApiProperty({ example: 'active' })
+  @IsString({ message: 'El estado debe ser texto' })
+  @MaxLength(50, { message: 'El estado es demasiado largo' })
+  @Transform(({ value }) => value?.trim())
+  public status: string;
 }
