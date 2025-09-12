@@ -14,7 +14,7 @@ export class CreateCheckoutSessionDto {
     @IsArray()
     @ValidateNested({ each: true })
     @Type(() => LineItemDto)
-    items: LineItemDto[];
+    items: LineItemDto[];  
 
     @IsUrl()
     successUrl?: string;
