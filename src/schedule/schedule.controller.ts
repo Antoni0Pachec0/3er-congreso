@@ -23,7 +23,7 @@ export class ScheduleController {
   @ApiBody({ type: CreateScheduleDto })
   @HttpCode(HttpStatus.CREATED)
   createEvent(@Body() createScheduleDto: CreateScheduleDto) {
-    return this.scheduleService.create(createScheduleDto);
+    return this.scheduleService.register(createScheduleDto);
   }
 
   @Get('schedule')

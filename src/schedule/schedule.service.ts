@@ -6,7 +6,8 @@ import { UpdateWorkshopDto } from './dto/update-workshop.dto';
 
 @Injectable()
 export class ScheduleService {
-  create(createScheduleDto: CreateScheduleDto) {
+  // ==================== EVENT METHODS ====================
+  register(createScheduleDto: CreateScheduleDto) {
     return 'This action adds a new schedule';
   }
 
