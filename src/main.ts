@@ -16,10 +16,14 @@ async function bootstrap() {
   );
   
   const config = new DocumentBuilder()
-    .setTitle('Cats example')
-    .setDescription('The cats API description')
+    .setTitle('3er Congreso API')
+    .setDescription('API para el 3er Congreso - Sistema de pagos y gestión')
     .setVersion('1.0')
-    .addTag('cats')
+    .addTag('payments')
+    .addTag('stripe')
+    .addTag('users')
+    .addTag('auth')
+    .addBearerAuth()
     .build();
   const documentFactory = () => SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api', app, documentFactory);

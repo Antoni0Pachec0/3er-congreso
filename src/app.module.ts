@@ -6,8 +6,8 @@ import { AuthModule } from './auth/auth.module';
 import { UserModule } from './user/user.module';
 import { ScheduleModule } from './schedule/schedule.module';
 import { PaymentCardModule } from './payment/payment-card.module';
-import { PaymentStripeController } from './payment-stripe/controller/payment-stripe/payment-stripe.controller';
-import { PaymentStripeModuleModule } from './payment-stripe/payment-stripe.module';
+import { PaymentStripeModule } from './payment-stripe/payment-stripe.module';
+
 
 @Module({
   imports: [
@@ -17,9 +17,10 @@ import { PaymentStripeModuleModule } from './payment-stripe/payment-stripe.modul
     AuthModule, 
     UserModule, 
     ScheduleModule, 
-    PaymentCardModule, PaymentStripeModuleModule
+    PaymentCardModule, 
+    PaymentStripeModule
   ],
-  controllers: [AppController, PaymentStripeController],
+  controllers: [AppController],
   providers: [AppService],
 })
 export class AppModule {}
