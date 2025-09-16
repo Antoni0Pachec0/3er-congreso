@@ -3,8 +3,8 @@ import { JwtModule } from '@nestjs/jwt';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { PrismaService } from '@prisma/prisma.service';
-import { EmailService } from './email/email.service';
-import { JwtStrategy } from './strategies/jwt.strategy';
+import { EmailService } from './validation/email/email.service';
+import { JwtStrategy } from './validation/strategies/jwt.strategy';
 
 @Module({
   imports: [

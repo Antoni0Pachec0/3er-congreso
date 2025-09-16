@@ -7,7 +7,7 @@ import { ResendCodeDto } from '@auth/dto/resend-code.dto';
 import * as bcrypt from 'bcrypt';
 import { JwtService } from '@nestjs/jwt';
 import { JwtModule } from '@nestjs/jwt';
-import { EmailService } from '@auth/email/email.service';
+import { EmailService } from '@/auth/validation/email/email.service';
 import { Prisma, size_enum, status_user, status_enum } from '@prisma/client';
 
 @Injectable()
