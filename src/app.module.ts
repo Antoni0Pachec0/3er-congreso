@@ -7,8 +7,8 @@ import { AuthService } from '@auth/auth.service';
 import { AuthModule } from '@/auth/auth.module';
 import { UserModule } from '@/user/user.module';
 import { ScheduleModule } from '@/schedule/schedule.module';
-import { PaymentCardModule } from '@/payment/payment-card.module';
 import { PrismaModule } from '@prisma/prisma.module';
+import { PaymentStripeModule } from './payment-stripe/payment-stripe.module';
 
 @Module({
   imports: [
@@ -19,7 +19,7 @@ import { PrismaModule } from '@prisma/prisma.module';
     PrismaModule,
     UserModule, 
     ScheduleModule, 
-    PaymentCardModule
+    PaymentStripeModule
   ],
   controllers: [AppController],
   providers: [AppService],
