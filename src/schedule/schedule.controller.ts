@@ -9,7 +9,7 @@ export class ScheduleController {
 
   @Post()
   create(@Body() createScheduleDto: CreateScheduleDto) {
-    return this.scheduleService.create(createScheduleDto);
+    return this.scheduleService.register(createScheduleDto);
   }
 
   @Get()

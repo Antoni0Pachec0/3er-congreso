@@ -4,7 +4,7 @@ import { UpdateScheduleDto } from './dto/update-schedule.dto';
 
 @Injectable()
 export class ScheduleService {
-  create(createScheduleDto: CreateScheduleDto) {
+  register(createScheduleDto: CreateScheduleDto) {
     return 'This action adds a new schedule';
   }
 
