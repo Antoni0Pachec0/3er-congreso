@@ -5,7 +5,6 @@ import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
 import { UserModule } from './user/user.module';
 import { ScheduleModule } from './schedule/schedule.module';
-import { PaymentCardModule } from './payment/payment-card.module';
 import { PaymentStripeModule } from './payment-stripe/payment-stripe.module';
 
 
@@ -17,7 +16,6 @@ import { PaymentStripeModule } from './payment-stripe/payment-stripe.module';
     AuthModule, 
     UserModule, 
     ScheduleModule, 
-    PaymentCardModule, 
     PaymentStripeModule
   ],
   controllers: [AppController],
