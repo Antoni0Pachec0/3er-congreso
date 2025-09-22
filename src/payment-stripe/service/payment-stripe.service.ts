@@ -1,141 +1,157 @@
-import { Injectable, BadRequestException, InternalServerErrorException, Inject } from '@nestjs/common';
-import { ConfigType } from '@nestjs/config';
+import {
+  BadRequestException,
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+} from '@nestjs/common';
 import Stripe from 'stripe';
-import paymentConfig from '../../config/payment.config';
+import { PaymentConfigService } from '../../config/payment.config';
 import { CreateCheckoutSessionDto } from '../dto/stripe-payment-create-body.dto';
+import { VerifyPaymentResponseDto } from '../dto/verify-payment-response.dto';
+
 @Injectable()
 export class PaymentStripeService {
-  private stripe: Stripe;
+  private readonly logger = new Logger(PaymentStripeService.name);
+  private readonly stripe: Stripe;
 
-  constructor(
-    @Inject(paymentConfig.KEY)
-    private readonly paymentConfigService: ConfigType<typeof paymentConfig>,
-  ){
-    const secret = this.paymentConfigService.stripe.secretKey;
-    if (!secret) {
-      throw new Error('Stripe secret key is not defined');
+  constructor(private readonly paymentConfigService: PaymentConfigService) {
+    const sk = this.paymentConfigService.stripe.secretKey;
+    if (!sk) {
+      throw new Error('STRIPE_SECRET_KEY no está configurada');
     }
-    // Usando la versión predeterminada de la API para evitar problemas de tipo
-    this.stripe = new Stripe(secret, {
+    this.stripe = new Stripe(sk, {
       apiVersion: '2025-08-27.basil',
+      typescript: true,
     });
   }
+
   /**
-   * Obtiene el ID de precio real basado en un identificador predefinido o usa el ID directo
+   * Crea una sesión de Stripe Checkout en modo EMBEDDED y regresa el client_secret
    */
-  private getPriceId(priceKey: string): string {
-    // Mapa de precios predefinidos a sus configuraciones correspondientes
-    const priceMap: Record<string, { id?: string, errorMsg: string }> = {
-      'CONGRESO': { 
-        id: this.paymentConfigService.stripe.priceCongreso, 
-        errorMsg: 'El precio del congreso no está configurado' 
-      },
-      'PAQUETE': { 
-        id: this.paymentConfigService.stripe.pricePaquetes, 
-        errorMsg: 'El precio de paquetes no está configurado' 
-      },
-      'SOUVENIR': { 
-        id: this.paymentConfigService.stripe.priceSouvenirs, 
-        errorMsg: 'El precio de souvenirs no está configurado' 
-      }
-    };
-
-    // Verificar si es un tipo predefinido
-    const priceConfig = priceMap[priceKey];
-    
-    if (priceConfig) {
-      if (!priceConfig.id) {
-        throw new BadRequestException(priceConfig.errorMsg);
-      }
-      return priceConfig.id;
-    }
-
-    // Si no es un tipo predefinido, asumimos que es un ID directo de Stripe
-    return priceKey;
-  }
-
-  async    createEmbeddedCheckoutSession(body: CreateCheckoutSessionDto) {
+  async createEmbeddedCheckoutSession(
+    body: CreateCheckoutSessionDto,
+  ): Promise<{ sessionId: string; clientSecret: string | null }> {
     try {
-      // Procesar los items y determinar si necesitamos usar precios predefinidos
-      const lineItems = body.items.map(item => {
+      if (!Array.isArray(body.items) || body.items.length === 0) {
+        throw new BadRequestException('items requerido y no puede estar vacío');
+      }
+
+      const lineItems = body.items.map((item) => {
         const priceId = this.getPriceId(item.price);
-        
         if (!priceId) {
           throw new BadRequestException(`Precio no definido: ${item.price}`);
         }
-
-        return {
-          price: priceId,
-          quantity: item.quantity,
-        };
+        if (!item.quantity || item.quantity < 1) {
+          throw new BadRequestException('quantity debe ser >= 1');
+        }
+        return { price: priceId, quantity: item.quantity };
       });
 
-      // Crear una sesión de checkout de Stripe
+      const returnUrl =
+        body.returnUrl ||
+        `${this.paymentConfigService.stripe.appDomain}/payment/return?session_id={CHECKOUT_SESSION_ID}`;
+
       const session = await this.stripe.checkout.sessions.create({
-        payment_method_types: ['card'],
         mode: 'payment',
+        ui_mode: 'embedded',
         line_items: lineItems,
-        success_url: body.successUrl || `${this.paymentConfigService.stripe.domain}/payment/success?session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: body.cancelUrl || `${this.paymentConfigService.stripe.domain}/payment/cancel`,
+        return_url: returnUrl,
+        customer_email: body.customerEmail,
+        client_reference_id: body.clientReferenceId,
+        metadata: body.metadata || {},
       });
 
       return {
         sessionId: session.id,
-        url: session.url,
+        clientSecret: session.client_secret ?? null,
       };
-    } catch (error) {
-      console.error('Error creating checkout session:', error);
-      
-      // Si ya es una excepción de NestJS, simplemente la reenviamos
-      if (error instanceof BadRequestException || error instanceof InternalServerErrorException) {
-        throw error;
+    } catch (error: any) {
+      this.logger.error('Error al crear sesión embedded', error?.stack || error);
+      if (error?.type === 'StripeInvalidRequestError') {
+        throw new BadRequestException(error.message);
       }
-      
-      // Si es un error de Stripe, devolvemos un mensaje más detallado
-      if (error instanceof Stripe.errors.StripeError) {
-        // Manejar diferentes tipos de errores de Stripe con mensajes específicos
-        switch (error.type) {
-          case 'StripeCardError':
-            throw new BadRequestException(`Error en la tarjeta: ${error.message}`);
-          case 'StripeInvalidRequestError':
-            throw new BadRequestException(`Solicitud inválida: ${error.message}`);
-          case 'StripeRateLimitError':
-            throw new InternalServerErrorException('Demasiadas solicitudes a Stripe. Intente nuevamente más tarde.');
-          default:
-            throw new BadRequestException(`Error de Stripe: ${error.message}`);
-        }
-      }
-      
-      // Para cualquier otro tipo de error
-      throw new InternalServerErrorException('Error al crear la sesión de pago');
+      throw new InternalServerErrorException(
+        error?.message || 'Error al crear la sesión de Stripe',
+      );
     }
   }
+
   /**
-   * Recupera los detalles de una sesión de checkout
+   * Recupera detalles de la sesión (útil para depurar o pantallas de admin)
    */
   async getCheckoutSessionDetails(sessionId: string) {
+    if (!sessionId) throw new BadRequestException('sessionId requerido');
     try {
-      return await this.stripe.checkout.sessions.retrieve(sessionId);
-    } catch (error) {
-      console.error('Error retrieving checkout session:', error);
-      if (error instanceof Stripe.errors.StripeError) {
-        throw new BadRequestException(`Error de Stripe: ${error.message}`);
-      }
-      throw new InternalServerErrorException('Error al recuperar la sesión de pago');
+      return await this.stripe.checkout.sessions.retrieve(sessionId, {
+        expand: ['payment_intent', 'customer'],
+      });
+    } catch (error: any) {
+      this.logger.error('Error al obtener detalles de la sesión', error?.stack || error);
+      throw new BadRequestException(error?.message || 'No se pudo recuperar la sesión');
     }
   }
 
   /**
-   * Verifica que una sesión de checkout se haya completado correctamente
+   * Verifica si una sesión quedó pagada (para la vista /payment/return)
    */
-  async verifyCheckoutSessionPayment(sessionId: string) {
-    const session = await this.getCheckoutSessionDetails(sessionId);
-    return {
-      isComplete: session.payment_status === 'paid',
-      paymentStatus: session.payment_status,
-      customerId: session.customer,
-      amount: session.amount_total ? session.amount_total / 100 : 0, // Convertir de centavos a pesos
-    };
+  async verifyCheckoutSessionPayment(sessionId: string): Promise<VerifyPaymentResponseDto> {
+    if (!sessionId) throw new BadRequestException('sessionId requerido');
+    try {
+      const session = await this.stripe.checkout.sessions.retrieve(sessionId, {
+        expand: ['payment_intent'],
+      });
+
+      const paymentStatus = session.payment_status; // 'paid' | 'unpaid' | 'no_payment_required'
+      const isComplete = session.status === 'complete' || paymentStatus === 'paid';
+
+      const amount =
+        typeof session.amount_total === 'number' ? session.amount_total : 0;
+
+      return {
+        isComplete,
+        paymentStatus,
+        customerId: (session.customer as string) || null,
+        amount,
+        currency: session.currency || 'mxn',
+        sessionId: session.id,
+      };
+    } catch (error: any) {
+      this.logger.error('Error al verificar pago', error?.stack || error);
+      throw new BadRequestException(error?.message || 'No se pudo verificar el pago');
+    }
   }
 
+  /**
+   * Webhook helpers
+   */
+  getWebhookSecret(): string {
+    const ws = this.paymentConfigService.stripe.webhookSecret;
+    if (!ws) throw new Error('STRIPE_WEBHOOK_SECRET no está configurado');
+    return ws;
+  }
+
+  constructEventFromPayload(rawBody: Buffer, signature: string, secret: string): Stripe.Event {
+    return this.stripe.webhooks.constructEvent(rawBody, signature, secret);
+  }
+
+  /**
+   * Mapeo de alias -> priceId configurados en env
+   */
+  private getPriceId(code: string): string | null {
+    const upper = (code || '').toUpperCase();
+    switch (upper) {
+      case 'CONGRESO':
+        return this.paymentConfigService.stripe.priceCongreso || null;
+      case 'PAQUETES':
+      case 'PAQUETE':
+        return this.paymentConfigService.stripe.pricePaquetes || null;
+      case 'SOUVENIRS':
+      case 'SOUVENIR':
+        return this.paymentConfigService.stripe.priceSouvenirs || null;
+      default:
+        // también permitimos pasar directamente un price_ de Stripe
+        if (upper.startsWith('PRICE_')) return code;
+        return null;
+    }
+  }
 }

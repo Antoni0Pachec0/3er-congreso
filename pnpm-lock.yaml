@@ -50,6 +50,9 @@ importers:
       bcrypt:
         specifier: ^6.0.0
         version: 6.0.0
+      body-parser:
+        specifier: ^2.2.0
+        version: 2.2.0
       class-transformer:
         specifier: ^0.5.1
         version: 0.5.1
