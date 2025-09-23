@@ -9,6 +9,7 @@ import { UserModule } from '@/user/user.module';
 import { ScheduleModule } from '@/schedule/schedule.module';
 import { PaymentCardModule } from '@/payment/payment-card.module';
 import { PrismaModule } from '@prisma/prisma.module';
+import { ScoresModule } from './game/scores/scores.module';
 
 @Module({
   imports: [
@@ -19,7 +20,8 @@ import { PrismaModule } from '@prisma/prisma.module';
     PrismaModule,
     UserModule, 
     ScheduleModule, 
-    PaymentCardModule
+    PaymentCardModule,
+    ScoresModule,
   ],
   controllers: [AppController],
   providers: [AppService],

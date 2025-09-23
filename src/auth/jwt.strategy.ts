@@ -7,21 +7,23 @@ import { PrismaService } from '../../prisma/prisma.service';
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(private prisma: PrismaService) {
     super({
-      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(), // Extrae el token del header Authorization
-      ignoreExpiration: false, // Revisa la expiración del token
-      secretOrKey: process.env.JWT_SECRET || 'default_jwt_secret', // Clave secreta desde .env, valor por defecto
+      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      ignoreExpiration: false,
+      secretOrKey: process.env.JWT_SECRET || 'default_jwt_secret',
     });
   }
 
   async validate(payload: any) {
-    // Payload contiene los datos decodificados del token (ej. id, email)
+    // 💡 Usa `payload.userId` para que coincida con el payload del token
     const user = await this.prisma.users.findUnique({
-      where: { user_id: payload.id },
-      select: { user_id: true, name_user: true, email: true }, // Solo id y name (ajusta 'name' si usas 'nombre')
+      where: { user_id: payload.userId }, 
+      select: { user_id: true, name_user: true, email: true },
     });
     if (!user) {
       throw new Error('Usuario no encontrado');
     }
-    return user; // Esto se asigna a req.user
+    
+    // 💡 Devuelve un objeto con un nombre de propiedad consistente, como `id`
+    return { id: user.user_id };
   }
 }

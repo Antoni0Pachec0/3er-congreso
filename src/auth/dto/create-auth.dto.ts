@@ -1,6 +1,3 @@
-<<<<<<< HEAD
-export class CreateAuthDto {}
-=======
 import { IsNumber, IsString } from "class-validator";
 
 export class CreateAuthDto {
@@ -47,4 +44,3 @@ export class CreateAuthDto {
 
     public taller_id: number; */
 }
->>>>>>> asp

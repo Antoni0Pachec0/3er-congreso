@@ -9,7 +9,7 @@ export class ScoresGateway {
 
   @UseGuards(WsJwtGuard)
   @SubscribeMessage('submitScore')
-  async handleSubmitScore(@MessageBody() dto: { value: number }, @ConnectedSocket() client: any) {
+  async handleSubmitScore(@MessageBody() dto: { value: number; game_score_id: bigint }, @ConnectedSocket() client: any) {
     const userId = client.user.id;
     const newScore = await this.scoresService.createScore(userId, dto);
     client.broadcast.emit('newLeaderboard', await this.scoresService.getLeaderboard());
