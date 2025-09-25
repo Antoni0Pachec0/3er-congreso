@@ -29,7 +29,7 @@ model kit {
   kit_id            BigInt              @id @default(autoincrement())
   name_kit          String?             @db.VarChar(255)
   descript          String?
-  price             Decimal?            @db.Money
+  price             Decimal?            @db.Decimal(8, 2)
   relation_kit_item relation_kit_item[]
   users             users[]
 }
@@ -83,7 +83,7 @@ model users {
   maternal_surname                            String               @db.VarChar(100)
   phone                                       String               @db.VarChar(20)
   emergency_phone                             String?              @db.VarChar(20)
-  email                                       String               @unique @db.VarChar(155)
+  email                                       String               @unique(map: "unique_email") @db.VarChar(155)
   password_user                               String               @db.VarChar(255)
   provenance                                  String?              @db.VarChar(255)
   educational_program                         String?              @db.VarChar(155)
@@ -96,9 +96,12 @@ model users {
   status                                      status_user?         @default(inactive)
   status_event                                Boolean?             @default(false)
   matricula                                   String?              @db.VarChar(8)
+  Payment                                     Payment[]
   attendance                                  attendance[]
   game_score                                  game_score[]
   schedule                                    schedule[]
+  speaker_profiles                            speaker_profiles[]
+  url_red_social                              url_red_social[]
   type_user                                   type_user?           @relation(fields: [type_user_id], references: [type_user_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_type_user")
   workshop_users_workshop_idToworkshop        workshop?            @relation("users_workshop_idToworkshop", fields: [workshop_id], references: [workshop_id], onDelete: Cascade, map: "fk_workshop_id")
   kit                                         kit?                 @relation(fields: [kit_id], references: [kit_id], onDelete: NoAction, onUpdate: NoAction)
@@ -139,11 +142,62 @@ model workshop {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model game_score {
-  game_score_id BigInt    @id
+  game_score_id BigInt    @id @default(autoincrement())
   score         Int
   created_at    DateTime? @default(now()) @db.Timestamp(6)
   user_id       BigInt?
   users         users?    @relation(fields: [user_id], references: [user_id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model Payment {
+  id                  String   @id
+  sessionId           String   @unique
+  paymentIntentId     String?  @unique
+  chargeId            String?  @unique
+  status              String
+  paymentStatus       String
+  amountTotal         Int
+  currency            String
+  customerId          String?
+  customerEmail       String?
+  mode                String?
+  clientReferenceId   String?
+  metadata            Json?
+  paymentIntentStatus String?
+  paymentMethodType   String?
+  receiptUrl          String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime
+  userId              BigInt?
+  users               users?   @relation(fields: [userId], references: [user_id])
+
+  @@index([userId])
+}
+
+model red_social {
+  red_social_id  BigInt           @id @default(autoincrement())
+  nombre         String?          @db.VarChar(255)
+  descript       String?
+  url_red_social url_red_social[]
+}
+
+model speaker_profiles {
+  id_speaker_profile   BigInt  @id @default(autoincrement())
+  name_company         String? @db.VarChar(255)
+  rol_event            String? @db.VarChar(255)
+  rol_company          String? @db.VarChar(255)
+  personal_description String?
+  user_id              BigInt?
+  users                users?  @relation(fields: [user_id], references: [user_id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model url_red_social {
+  url_red_social_id BigInt      @id @default(autoincrement())
+  url               String?     @db.VarChar(355)
+  red_social_id     BigInt?
+  user_id           BigInt?
+  red_social        red_social? @relation(fields: [red_social_id], references: [red_social_id], onDelete: NoAction, onUpdate: NoAction)
+  users             users?      @relation(fields: [user_id], references: [user_id], onDelete: NoAction, onUpdate: NoAction)
 }
 
 enum day_week_enum {

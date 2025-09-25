@@ -43,6 +43,7 @@
     "ioredis": "^5.7.0",
     "joi": "^18.0.1",
     "mercadopago": "^2.8.0",
+    "nanoid": "^5.1.6",
     "nodemailer": "^7.0.6",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
