@@ -1,0 +1,15 @@
+# Dependencias locales
+node_modules
+
+# Carpeta de build (se genera dentro del contenedor)
+
+
+# Logs y archivos de entorno
+npm-debug.log
+.env
+
+# Archivos propios de Docker y Git
+Dockerfile
+.dockerignore
+.git
+.gitignore
