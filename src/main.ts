@@ -24,7 +24,6 @@ async function bootstrap() {
 
   app.use(cookieParser());
   // CORS (ajusta el origin a tu front)
-  const app = await NestFactory.create(AppModule);
   const logger = new Logger('Bootstrap');
 
   
@@ -39,7 +38,6 @@ async function bootstrap() {
   });
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }));
 
-  const logger = new Logger('Bootstrap');
 
   app.useGlobalPipes(
     new ValidationPipe({
