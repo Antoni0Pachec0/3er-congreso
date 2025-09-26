@@ -1,3 +1,7 @@
+// src/main.ts
+import 'dotenv/config';
+import 'tsconfig-paths/register';
+
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '@/app.module';
 import { Logger, ValidationPipe } from '@nestjs/common';
@@ -8,6 +12,7 @@ import * as bodyParser from 'body-parser';
 import * as tsConfigPaths from 'tsconfig-paths';
 import { join } from 'path';
 import { config } from 'dotenv';
+import { PrismaService } from '@prisma/prisma.service';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
@@ -21,8 +26,9 @@ async function bootstrap() {
     credentials: true,
     methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'Idempotency-Key', 'stripe-signature'],
+    exposedHeaders: ['Set-Cookie'],
   });
-
+  app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }));
 
   const logger = new Logger('Bootstrap');
 

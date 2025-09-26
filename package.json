@@ -22,24 +22,29 @@
   "dependencies": {
     "@mercadopago/sdk-js": "^0.0.3",
     "@nestjs/axios": "^4.0.1",
+    "@nestjs/cache-manager": "^3.0.1",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.2",
     "@nestjs/core": "^11.1.6",
     "@nestjs/jwt": "^11.0.0",
     "@nestjs/mapped-types": "*",
     "@nestjs/passport": "^11.0.5",
-    "@nestjs/platform-express": "^11.0.1",
+    "@nestjs/platform-express": "^11.1.6",
     "@nestjs/swagger": "^11.2.0",
     "@nestjs/throttler": "^6.4.0",
     "@prisma/client": "^6.15.0",
     "axios": "^1.11.0",
     "bcrypt": "^6.0.0",
+    "cache-manager": "^7.2.0",
+    "cache-manager-ioredis": "^2.1.0",
     "body-parser": "^2.2.0",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.2",
     "dotenv": "^17.2.2",
+    "ioredis": "^5.7.0",
     "joi": "^18.0.1",
     "mercadopago": "^2.8.0",
+    "nanoid": "^5.1.6",
     "nodemailer": "^7.0.6",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
@@ -94,5 +99,8 @@
     ],
     "coverageDirectory": "../coverage",
     "testEnvironment": "node"
+  },
+  "prisma": {
+    "seed": "ts-node prisma/seed.ts"
   }
 }

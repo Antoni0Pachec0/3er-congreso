@@ -29,7 +29,7 @@ model kit {
   kit_id            BigInt              @id @default(autoincrement())
   name_kit          String?             @db.VarChar(255)
   descript          String?
-  price             Decimal?            @db.Money
+  price             Decimal?            @db.Decimal(8, 2)
   relation_kit_item relation_kit_item[]
   users             users[]
 }
@@ -83,7 +83,7 @@ model users {
   maternal_surname                            String               @db.VarChar(100)
   phone                                       String               @db.VarChar(20)
   emergency_phone                             String?              @db.VarChar(20)
-  email                                       String               @unique @db.VarChar(155)
+  email                                       String               @unique(map: "unique_email") @db.VarChar(155)
   password_user                               String               @db.VarChar(255)
   provenance                                  String?              @db.VarChar(255)
   educational_program                         String?              @db.VarChar(155)
@@ -97,9 +97,14 @@ model users {
   status_event                                Boolean?             @default(false)
   matricula                                   String?              @db.VarChar(8)
   Payment                                     Payment[]
+  matricula                                   String?              @db.VarChar(8)
+  Payment                                     Payment[]
   attendance                                  attendance[]
   game_score                                  game_score[]
+  game_score                                  game_score[]
   schedule                                    schedule[]
+  speaker_profiles                            speaker_profiles[]
+  url_red_social                              url_red_social[]
   type_user                                   type_user?           @relation(fields: [type_user_id], references: [type_user_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_type_user")
   workshop_users_workshop_idToworkshop        workshop?            @relation("users_workshop_idToworkshop", fields: [workshop_id], references: [workshop_id], onDelete: Cascade, map: "fk_workshop_id")
   kit                                         kit?                 @relation(fields: [kit_id], references: [kit_id], onDelete: NoAction, onUpdate: NoAction)
