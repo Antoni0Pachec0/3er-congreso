@@ -1,29 +1,40 @@
-// src/app.module.ts
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { AppController } from '@/app.controller';
 import { AppService } from '@/app.service';
-import { AuthService } from '@auth/auth.service';
 import { AuthModule } from '@/auth/auth.module';
 import { UserModule } from '@/user/user.module';
 import { ScheduleModule } from '@/schedule/schedule.module';
-import { PaymentCardModule } from '@/payment/payment-card.module';
 import { PrismaModule } from '@prisma/prisma.module';
 import { ScoresModule } from './game/scores/scores.module';
+import { PaymentStripeModule } from './payment-stripe/payment-stripe.module';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { APP_GUARD } from '@nestjs/core';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({
-      isGlobal: true,
-    }),
+    ConfigModule.forRoot({ isGlobal: true }),
+    ThrottlerModule.forRoot([{
+      ttl: 60000, // ttl en milisegundos, 60 segundos
+      limit: 10,
+    }]),
     AuthModule,
     PrismaModule,
     UserModule, 
     ScheduleModule, 
-    PaymentCardModule,
+    PaymentStripeModule,
     ScoresModule,
+    UserModule,
+    ScheduleModule,
+    PaymentStripeModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
+  ],
 })
 export class AppModule {}

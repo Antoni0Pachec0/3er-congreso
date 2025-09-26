@@ -5,12 +5,14 @@ interface EnvVars {
   PORT: number;
   DATABASE_URL: string;
   JWT_SECRET: string;
+  SPEAKER_SECRET: string;
 }
 
 const envsSchema = joi.object({
   PORT: joi.number().required(),
   DATABASE_URL: joi.string().required(),
   JWT_SECRET: joi.string().required(), // Añadido para JWT_SECRET
+  SPEAKER_SECRET: joi.string().required(),
 })
 .unknown(true);
 
@@ -26,4 +28,5 @@ export const envs = {
   port: envVars.PORT,
   databaseUrl: envVars.DATABASE_URL,
   jwtSecret: envVars.JWT_SECRET, // Ahora exportamos el JWT_SECRET
+  speakerSecret: envVars.SPEAKER_SECRET, // Ahora exportamos el JWT_SECRET
 };

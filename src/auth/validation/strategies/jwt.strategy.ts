@@ -4,7 +4,11 @@ import { PassportStrategy } from '@nestjs/passport';
 import { JwtPayload } from '../interfaces/jwt-payload.interface';
 import { PrismaService } from '@prisma/prisma.service';
 import { ExtractJwt, Strategy } from 'passport-jwt';
+<<<<<<< HEAD:src/auth/strategies/jwt.strategy.ts
 import { envs } from '../../config/envs';
+=======
+import { envs } from '@/config/envs';
+>>>>>>> asp:src/auth/validation/strategies/jwt.strategy.ts
 
 // En tu archivo jwt.strategy.ts
 // ...
