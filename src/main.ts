@@ -1,13 +1,12 @@
 // src/main.ts
 import 'dotenv/config';
 import 'tsconfig-paths/register';
-
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '@/app.module';
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { envs } from '@/config/envs'; // <-- importa tu archivo envs
-import 'tsconfig-paths/register';
+import * as cookieParser from 'cookie-parser';
 import * as bodyParser from 'body-parser';
 import * as tsConfigPaths from 'tsconfig-paths';
 import { join } from 'path';
@@ -20,6 +19,7 @@ async function bootstrap() {
     rawBody: true,
   });
 
+  app.use(cookieParser());
   // CORS (ajusta el origin a tu front)
   app.enableCors({
     origin: ['http://localhost:3000'],

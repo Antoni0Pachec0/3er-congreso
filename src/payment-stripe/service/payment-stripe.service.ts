@@ -10,7 +10,7 @@ import Stripe from 'stripe';
 import { PaymentConfigService } from '../../config/payment.config';
 import { CreateCheckoutSessionDto } from '../dto/stripe-payment-create-body.dto';
 import { VerifyPaymentResponseDto } from '../dto/verify-payment-response.dto';
-import { PrismaService } from 'prisma/prisma.service';
+import { PrismaService } from '@prisma/prisma.service';
 
 @Injectable()
 export class PaymentStripeService {
