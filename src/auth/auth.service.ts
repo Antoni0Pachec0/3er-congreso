@@ -6,8 +6,14 @@ import {
   InternalServerErrorException,
   BadRequestException,
   Inject,
-  ServiceUnavailableException, // ⬅️ añadido para mapear P1001
+  ServiceUnavailableException,
+  HttpException,
 } from '@nestjs/common';
+import { 
+  VERIFICATION_TTL_MS, 
+  RESEND_COOLDOWN_MS, 
+  MAX_ATTEMPTS 
+} from '@/common/tokens.constants'
 import { PrismaService } from '@prisma/prisma.service';
 import { CreateUserDto } from '@auth/dto/create-user.dto';
 import { CreateLoginDto } from '@auth/dto/create-login.dto';
@@ -357,220 +363,153 @@ async createUser(dto: CreateUserDto) {
     }
   }
 
-  // Verificar código de verificación
+/** Verificar código de verificación */
   async verifyCode(dto: VerifyCodeDto) {
-    try {
-      const user = await this.prisma.users.findUnique({
-        where: { email: dto.email.toLowerCase().trim() },
-      });
+    const email = dto.email?.toLowerCase().trim();
+    const code  = String(dto.code || '').trim();
 
-      if (!user) {
-        throw new NotFoundException('Usuario no encontrado');
-      }
+    // Validación básica
+    if (!email || !/^\d{6}$/.test(code)) {
+      throw new UnauthorizedException('Código de verificación inválido o expirado');
+    }
 
-      // Buscar token de verificación válido
-      const verificationToken = await this.prisma.verification_token.findFirst({
-        where: {
-          user_id: user.user_id,
-          token: dto.code,
-          token_type: 'email_verification',
-          used: false,
-          expires_at: { gt: new Date() } // Token no expirado
-        },
-        orderBy: { created_at: 'desc' } // Tomar el más reciente
-      });
+    const user = await this.prisma.users.findUnique({ where: { email } });
+    if (!user) {
+      // No revelar si el email existe
+      throw new UnauthorizedException('Código de verificación inválido o expirado');
+    }
 
-      if (!verificationToken) {
-        // Incrementar intentos fallidos si existe algún token
-        await this.incrementVerificationAttempts(user.user_id);
-        throw new UnauthorizedException('Código de verificación inválido o expirado');
-      }
+    // Token válido y más reciente
+    const token = await this.prisma.verification_token.findFirst({
+      where: {
+        user_id: user.user_id,
+        token: code,
+        token_type: 'email_verification',
+        used: false,
+        expires_at: { gt: new Date() },
+      },
+      orderBy: { created_at: 'desc' }
+    });
 
-      // Verificar intentos excesivos
-      if ((verificationToken.attempts || 0) >= 5) {
-        throw new UnauthorizedException('Demasiados intentos fallidos. Por favor solicitaun nuevo código.');
-      }
+    if (!token) {
+      await this.incrementVerificationAttempts(user.user_id);
+      throw new UnauthorizedException('Código de verificación inválido o expirado');
+    }
 
-      // Actualizar usuario a activo
-      await this.prisma.users.update({
+    if ((token.attempts ?? 0) >= MAX_ATTEMPTS) {
+      throw new UnauthorizedException('Demasiados intentos. Solicita un nuevo código.');
+    }
+
+    // Transacción: activar usuario + marcar token usado + invalidar otros
+    await this.prisma.$transaction(async (tx) => {
+      await tx.users.update({
         where: { user_id: user.user_id },
-        data: { status: 'active' as status_user }
+        data: { status: 'active' as status_user },
       });
 
-      // Marcar token como usado
+      await tx.verification_token.update({
+        where: { verification_token_id: token.verification_token_id },
+        data: { used: true, used_at: new Date() /* NO increment attempts aquí */ },
+      });
+
+      await tx.verification_token.updateMany({
+        where: {
+          user_id: user.user_id,
+          token_type: 'email_verification',
+          used: false,
+          verification_token_id: { not: token.verification_token_id },
+        },
+        data: { used: true },
+      });
+    });
+
+    return { message: 'Usuario verificado exitosamente', user_id: Number(user.user_id) };
+  }
+
+  /** Incrementa intentos del último token pendiente */
+  /** Incrementa intentos del último token pendiente */
+/** Incrementa intentos del último token pendiente */
+private async incrementVerificationAttempts(userId: bigint) {
+  try {
+    // 1. ENCONTRAR el token más reciente y no usado
+    const latestToken = await this.prisma.verification_token.findFirst({
+      where: {
+        user_id: userId,
+        token_type: 'email_verification',
+        used: false,
+        created_at: {
+          gte: new Date(Date.now() - VERIFICATION_TTL_MS),
+        },
+      },
+      orderBy: { created_at: 'desc' },
+    });
+
+    // 2. ACTUALIZAR solo si se encontró un token
+    if (latestToken) {
       await this.prisma.verification_token.update({
-          where: { verification_token_id: verificationToken.verification_token_id },
-          data: { 
-              used: true, 
-              used_at: new Date(),
-              attempts: (verificationToken.attempts || 0) + 1  // Si es null, usa 0 + 1 = 1
-          }
-      });
-
-      // Invalidar otros tokens de verificación del mismo usuario
-      await this.prisma.verification_token.updateMany({
         where: {
-          user_id: user.user_id,
-          token_type: 'email_verification',
-          used: false,
-          verification_token_id: { not: verificationToken.verification_token_id }
+          // 🎉 ¡CORRECCIÓN AQUÍ! Usamos el campo ID correcto: verification_token_id
+          verification_token_id: latestToken.verification_token_id, 
         },
-        data: { used: true }
-      });
-
-      return { 
-        message: 'Usuario verificado exitosamente',
-        user_id: Number(user.user_id)
-      };
-
-    } catch (error) {
-      if (error instanceof UnauthorizedException || error instanceof NotFoundException) {
-        throw error;
-      }
-      
-      console.error('Error en verificación:', error);
-      throw new InternalServerErrorException('Error al verificar el código');
-    }
-  }
-
-  // Método auxiliar para incrementar intentos de verificación
-  private async incrementVerificationAttempts(userId: bigint) {
-    try {
-        const latestToken = await this.prisma.verification_token.findFirst({
-            where: {
-                user_id: userId,
-                token_type: 'email_verification',
-                used: false
-            },
-            orderBy: { created_at: 'desc' }
-        });
-
-        if (latestToken) {
-            await this.prisma.verification_token.update({
-                where: { verification_token_id: latestToken.verification_token_id },
-                data: { 
-                    attempts: { 
-                        increment: 1 
-                    } 
-                }
-            });
-        }
-    } catch (error) {
-        console.error('Error incrementando intentos:', error);
-    }
-  }
-
-  // Obtener perfil de usuario
-  async getProfile(userId: number) {
-    try {
-      const user = await this.prisma.users.findUnique({
-        where: { user_id: BigInt(userId) },
-        include: {
-          type_user: {
-            select: { name_type: true, descript: true }
-          }
-        }
-      });
-
-      if (!user) {
-        throw new NotFoundException('Usuario no encontrado');
-      }
-
-      // Devolver solo los datos públicos, sin la contraseña
-      const { password_user, ...profile } = user;
-      
-      // Transformar BigInt a Number
-      return {
-        ...profile,
-        user_id: Number(profile.user_id),
-        kit_id: profile.kit_id ? Number(profile.kit_id) : null,
-        workshop_id: profile.workshop_id ? Number(profile.workshop_id) : null,
-        type_user_id: profile.type_user_id ? Number(profile.type_user_id) : null,
-      };
-
-    } catch (error) {
-      if (error instanceof NotFoundException) {
-        throw error;
-      }
-      
-      console.error('Error obteniendo perfil:', error);
-      throw new InternalServerErrorException('Error al obtener el perfil');
-    }
-  }
-
-  // Logout (invalidar refresh token)
-  async logout(userId: number, refreshToken: string) {
-    try {
-      // Invalidar el refresh token específico
-      await this.prisma.verification_token.updateMany({
-        where: {
-          user_id: BigInt(userId),
-          token: refreshToken,
-          token_type: 'refreshToken',
-          used: false
-        },
-        data: { 
-          used: true,
-          used_at: new Date()
-        }
-      });
-
-      return { message: 'Sesión cerrada exitosamente' };
-
-    } catch (error) {
-      console.error('Error en logout:', error);
-      throw new InternalServerErrorException('Error al cerrar sesión');
-    }
-  }
-
-  // Reenviar código de verificación
-  async resendCode(dto: ResendCodeDto) {
-    try {
-      const user = await this.prisma.users.findUnique({
-        where: { email: dto.email.toLowerCase().trim() },
-      });
-
-      if (!user) {
-        throw new NotFoundException('Usuario no encontrado');
-      }
-
-      // Invalidar tokens anteriores no usados
-      await this.prisma.verification_token.updateMany({
-        where: {
-          user_id: user.user_id,
-          token_type: 'email_verification',
-          used: false
-        },
-        data: { used: true }
-      });
-
-      // Generar nuevo código de verificación
-      const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
-
-      // Crear nuevo registro de token
-      await this.prisma.verification_token.create({
         data: {
-          token: verificationCode,
-          token_type: 'email_verification',
-          user_id: user.user_id,
-          used: false,
-          attempts: 0,
-        }
+          attempts: { increment: 1 },
+        },
       });
-
-      // Enviar email
-      await this.emailService.sendVerificationCode(user.email, verificationCode);
-
-      return { message: 'Código de verificación reenviado exitosamente' };
-
-    } catch (error) {
-      if (error instanceof NotFoundException) {
-        throw error;
-      }
-      
-      console.error('Error reenviando código:', error);
-      throw new InternalServerErrorException('Error al reenviar el código de verificación');
     }
+  } catch (e) {
+    console.error('Error incrementando intentos:', e);
+  }
+}
+
+  /** Reenviar código con TTL y cooldown */
+  async resendCode(dto: ResendCodeDto) {
+    const email = dto.email?.toLowerCase().trim();
+    if (!email) {
+      throw new BadRequestException('Email requerido');
+    }
+
+    const user = await this.prisma.users.findUnique({ where: { email } });
+    if (!user) {
+      // No revelar si existe
+      return { message: 'Código de verificación reenviado exitosamente' };
+    }
+
+    // Cooldown: si hace muy poco se generó uno
+    const recent = await this.prisma.verification_token.findFirst({
+      where: {
+        user_id: user.user_id,
+        token_type: 'email_verification',
+        created_at: { gte: new Date(Date.now() - RESEND_COOLDOWN_MS) },
+        used: false,
+      },
+      orderBy: { created_at: 'desc' }
+    });
+    if (recent) {
+      throw new HttpException('Espera unos segundos antes de pedir otro código.', 429);
+    }
+
+    // Invalidar pendientes
+    await this.prisma.verification_token.updateMany({
+      where: { user_id: user.user_id, token_type: 'email_verification', used: false },
+      data: { used: true },
+    });
+
+    const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = new Date(Date.now() + VERIFICATION_TTL_MS);
+
+    await this.prisma.verification_token.create({
+      data: {
+        token: verificationCode,
+        token_type: 'email_verification',
+        user_id: user.user_id,
+        used: false,
+        attempts: 0,
+        expires_at: expiresAt,
+      },
+    });
+
+    await this.emailService.sendVerificationCode(user.email, verificationCode);
+    return { message: 'Código de verificación reenviado exitosamente' };
   }
 
   // Refresh token
@@ -636,6 +575,69 @@ async createUser(dto: CreateUserDto) {
       
       console.error('Error refrescando token:', error);
       throw new InternalServerErrorException('Error al refrescar el token');
+    }
+  }
+
+  // Obtener perfil de usuario
+  async getProfile(userId: number) {
+    try {
+      const user = await this.prisma.users.findUnique({
+        where: { user_id: BigInt(userId) },
+        include: {
+          type_user: {
+            select: { name_type: true, descript: true }
+          }
+        }
+      });
+
+      if (!user) {
+        throw new NotFoundException('Usuario no encontrado');
+      }
+
+      // Devolver solo los datos públicos, sin la contraseña
+      const { password_user, ...profile } = user;
+      
+      // Transformar BigInt a Number
+      return {
+        ...profile,
+        user_id: Number(profile.user_id),
+        kit_id: profile.kit_id ? Number(profile.kit_id) : null,
+        workshop_id: profile.workshop_id ? Number(profile.workshop_id) : null,
+        type_user_id: profile.type_user_id ? Number(profile.type_user_id) : null,
+      };
+
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      
+      console.error('Error obteniendo perfil:', error);
+      throw new InternalServerErrorException('Error al obtener el perfil');
+    }
+  }
+
+  // Logout (invalidar refresh token)
+  async logout(userId: number, refreshToken: string) {
+    try {
+      // Invalidar el refresh token específico
+      await this.prisma.verification_token.updateMany({
+        where: {
+          user_id: BigInt(userId),
+          token: refreshToken,
+          token_type: 'refreshToken',
+          used: false
+        },
+        data: { 
+          used: true,
+          used_at: new Date()
+        }
+      });
+
+      return { message: 'Sesión cerrada exitosamente' };
+
+    } catch (error) {
+      console.error('Error en logout:', error);
+      throw new InternalServerErrorException('Error al cerrar sesión');
     }
   }
 }
