@@ -22,7 +22,7 @@ async function bootstrap() {
   app.use(cookieParser());
   // CORS (ajusta el origin a tu front)
   app.enableCors({
-    origin: ['http://localhost:3000'],
+    origin: ['https://congresoti.com.mx/'],
     credentials: true,
     methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'Idempotency-Key', 'stripe-signature'],
