@@ -4,6 +4,9 @@ import 'tsconfig-paths/register';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '@/app.module';
 import { Logger, ValidationPipe } from '@nestjs/common';
+
+import 'tsconfig-paths/register';
+import { HttpExceptionFilter } from './game/scores/http-exception.filter';  
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { envs } from '@/config/envs'; // <-- importa tu archivo envs
 import * as cookieParser from 'cookie-parser';
@@ -21,6 +24,12 @@ async function bootstrap() {
 
   app.use(cookieParser());
   // CORS (ajusta el origin a tu front)
+  const app = await NestFactory.create(AppModule);
+  const logger = new Logger('Bootstrap');
+
+  
+  app.useGlobalFilters(new HttpExceptionFilter());
+
   app.enableCors({
     origin: ['https://congresoti.com.mx/'],
     credentials: true,
