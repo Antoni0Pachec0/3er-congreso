@@ -226,10 +226,8 @@ async createUser(dto: CreateUserDto) {
 
     this.emailService
       .sendVerificationCode(user.email, verificationCode)
-      .then(() => console.log(`Correo enviado exitosamente a: ${user.email}`))
-      .catch((e) => console.error('[Email send error]', e));
 
-    // ===== 3) Responder rápido al front =====
+      // ===== 3) Responder rápido al front =====
     return {
       message: 'Usuario creado exitosamente. Te enviamos un correo de verificación.',
       email_sent: true, // "enviado" en background; si falla queda logueado
@@ -262,7 +260,6 @@ async createUser(dto: CreateUserDto) {
 
         this.emailService
           .sendVerificationCode(existing.email, newCode)
-          .then(() => console.log(`Reenvío de código a: ${existing.email}`))
           .catch((e) => console.error('[Email resend error]', e));
 
         // Soft-OK: el front puede continuar a /verify sin mostrar 409

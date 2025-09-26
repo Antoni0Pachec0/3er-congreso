@@ -30,7 +30,6 @@ export class EmailService {
 
     try {
       await this.transporter.sendMail(mailOptions);
-      console.log('Correo enviado exitosamente a:', to);
     } catch (error) {
       console.error('Error enviando correo:', error);
       throw new Error('No se pudo enviar el correo de verificación');
