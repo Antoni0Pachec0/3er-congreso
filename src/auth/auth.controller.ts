@@ -44,6 +44,22 @@ export class AuthController {
     return this.authService.createUser(createUserDto);
   }
 
+  @ApiOperation({ summary: 'Verificar contraseña secreta para registro de ponentes' })
+  @ApiResponse({ status: 200, description: 'Contraseña de ponente válida' })
+  @ApiResponse({ status: 401, description: 'Contraseña de ponente inválida' })
+  @Throttle({ default: { limit: 10, ttl: 60 } }) // Opcional: Recomendado para prevenir ataques de fuerza bruta
+  @Post('speakers/check-secret')
+  checkSpeakerSecret(@Body() body: { secret_password: string }) {
+    const secret = (process.env.SPEAKER_SECRET || '').trim();
+    
+    // La excepción correcta para credenciales inválidas es 401 Unauthorized
+    if (!secret || (body.secret_password || '').trim() !== secret) {
+      throw new UnauthorizedException('Contraseña de ponente inválida');
+    }
+
+    return { ok: true };
+  }
+
   @ApiOperation({ summary: 'Iniciar sesión con email y contraseña' })
   @ApiResponse({ status: 200, description: 'Inicio de sesión exitoso' })
   @ApiResponse({ status: 401, description: 'Credenciales inválidas' })

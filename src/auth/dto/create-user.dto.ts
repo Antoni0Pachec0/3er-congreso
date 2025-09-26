@@ -43,19 +43,21 @@ export class CreateUserDto {
   @Transform(({ value }) => value?.trim().replace(/\s+/g, ' '))
   maternal_surname: string;
 
-  @ApiProperty({ example: '+525512345678', description: 'Teléfono del usuario' })
+  // Teléfono principal (obligatorio) en formato internacional E.164
+  @ApiProperty({ example: '+525512345678', description: 'Teléfono del usuario en formato E.164 (+[código país][número])' })
   @IsString({ message: 'El teléfono debe ser texto' })
   @IsNotEmpty({ message: 'El teléfono es obligatorio' })
-  @Length(13, 13, { message: 'El teléfono debe tener exactamente 13 caracteres (ej: +525512345678)' })
-  @Matches(/^\+52\d{10}$/, { message: 'Formato de teléfono inválido. Ej: +525512345678' })
+  // E.164: + seguido de 8 a 15 dígitos, primer dígito 1-9
+  @Matches(/^\+[1-9]\d{7,14}$/, { message: 'Formato de teléfono inválido. Usa E.164: ej. +525512345678' })
   phone: string;
 
-  @ApiProperty({ example: '+525598765432', description: 'Teléfono de emergencia del usuario' })
+  // Teléfono de emergencia OPCIONAL en E.164
+  @ApiProperty({ example: '+15551234567', description: 'Teléfono de emergencia (opcional) en formato E.164', required: false })
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() || undefined : value)) // 👈 convierte '' -> undefined
+  @IsOptional()
   @IsString({ message: 'El teléfono de emergencia debe ser texto' })
-  @IsNotEmpty({ message: 'El teléfono de emergencia es obligatorio' })
-  @Length(13, 13, { message: 'El teléfono de emergencia debe tener exactamente 13 caracteres' })
-  @Matches(/^\+52\d{10}$/, { message: 'Formato de teléfono de emergencia inválido.' })
-  emergency_phone: string;
+  @Matches(/^\+[1-9]\d{7,14}$/, { message: 'Formato de teléfono de emergencia inválido (E.164)' })
+  emergency_phone?: string;
 
   @ApiProperty({ example: 'example@gmail.com', description: 'Correo electrónico del usuario' })
   @IsNotEmpty({ message: 'El email es obligatorio' })
@@ -186,59 +188,28 @@ export class CreateUserDto {
   // ===================================
   // CAMPOS PARA REDES SOCIALES
   // ===================================
-  @ApiProperty({
-    example: 'https://www.facebook.com/johndoe',
-    description: 'URL de perfil de Facebook',
-    required: false
-  })
   @IsOptional()
-  @IsString({
-    message: 'La URL de Facebook debe ser texto'
-  })
-  @IsUrl({}, {
-    message: 'La URL de Facebook no es válida'
-  })
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() || undefined : value))
+  @IsString({ message: 'La URL de Facebook debe ser texto' })
+  @IsUrl({}, { message: 'La URL de Facebook no es válida' })
   facebook_link?: string;
 
-  @ApiProperty({
-    example: 'https://www.instagram.com/johndoe',
-    description: 'URL de perfil de Instagram',
-    required: false
-  })
   @IsOptional()
-  @IsString({
-    message: 'La URL de Instagram debe ser texto'
-  })
-  @IsUrl({}, {
-    message: 'La URL de Instagram no es válida'
-  })
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() || undefined : value))
+  @IsString({ message: 'La URL de Instagram debe ser texto' })
+  @IsUrl({}, { message: 'La URL de Instagram no es válida' })
   instagram_link?: string;
 
-  @ApiProperty({
-    example: 'https://www.x.com/johndoe',
-    description: 'URL de perfil de X (Twitter)',
-    required: false
-  })
   @IsOptional()
-  @IsString({
-    message: 'La URL de X debe ser texto'
-  })
-  @IsUrl({}, {
-    message: 'La URL de X no es válida'
-  })
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() || undefined : value))
+  @IsString({ message: 'La URL de X debe ser texto' })
+  @IsUrl({}, { message: 'La URL de X no es válida' })
   x_link?: string;
 
-  @ApiProperty({
-    example: 'https://www.linkedin.com/in/johndoe',
-    description: 'URL de perfil de LinkedIn',
-    required: false
-  })
   @IsOptional()
-  @IsString({
-    message: 'La URL de LinkedIn debe ser texto'
-  })
-  @IsUrl({}, {
-    message: 'La URL de LinkedIn no es válida'
-  })
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() || undefined : value))
+  @IsString({ message: 'La URL de LinkedIn debe ser texto' })
+  @IsUrl({}, { message: 'La URL de LinkedIn no es válida' })
   linkedin_link?: string;
+
 }

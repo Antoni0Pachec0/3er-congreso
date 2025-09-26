@@ -173,7 +173,7 @@ async createUser(dto: CreateUserDto) {
     paternal_surname: dto.paternal_surname,
     maternal_surname: dto.maternal_surname,
     phone: dto.phone,
-    emergency_phone: dto.emergency_phone,
+    ...(dto.emergency_phone ? { emergency_phone: dto.emergency_phone } : {}),
     email,
     password_user: hashedPassword,
     size_user: dto.size_user as size_enum,
