@@ -1,51 +1,32 @@
 # --- ETAPA 1: Builder ---
-# Usamos una imagen reciente y estable de Node.js (LTS).
-# La nombramos 'builder' para referenciarla después.
 FROM node:20-alpine AS builder
-
-# Habilita pnpm, que viene incluido con Node.js a través de corepack.
 RUN corepack enable
-
 WORKDIR /app
 
-# Copia los archivos de manifiesto del paquete para pnpm.
 COPY package.json pnpm-lock.yaml ./
-
-# Instala TODAS las dependencias (incluyendo devDependencies) usando el lockfile.
 RUN pnpm install --frozen-lockfile
-
-# Copia el resto del código fuente.
 COPY . .
 
-# Genera el cliente de Prisma, necesario para la compilación.
-RUN pnpm prisma generate
-
-# Ejecuta el script de build de tu package.json.
+RUN env DATABASE_URL="postgresql://postgres:kXHMZzHWAiISWSGKbpiKXHBfbKbnQwQK@caboose.proxy.rlwy.net:51892/railway?sslmode=require" pnpm prisma generate
 RUN pnpm run build
 
 # --- ETAPA 2: Production ---
-# Empezamos de nuevo desde una imagen limpia para mantenerla ligera.
 FROM node:20-alpine
-
-# Habilita pnpm también en la imagen de producción.
 RUN corepack enable
-
 WORKDIR /app
 
-# Copia los manifiestos de nuevo.
 COPY package.json pnpm-lock.yaml ./
-
-# Instala ÚNICAMENTE las dependencias de producción.
 RUN pnpm install --prod --frozen-lockfile
 
-# Copia los artefactos construidos desde la etapa 'builder'.
 COPY --from=builder /app/dist ./dist
-
-# Copia el schema de Prisma (necesario en tiempo de ejecución).
 COPY --from=builder /app/prisma ./prisma
+COPY --from=builder /app/tsconfig.json ./tsconfig.json
 
-# Expone el puerto que tu aplicación usa (ajusta si es necesario).
+# --- INICIO DE LA SOLUCIÓN FINAL ---
+# Reemplaza la ruta de origen con la que encontraste en tu log.
+# Asegúrate de que termine en /client
+COPY --from=builder /app/node_modules/.pnpm/@prisma+client@6.16.2_prisma@6.16.2_typescript@5.9.2__typescript@5.9.2/node_modules/.prisma/client ./node_modules/.prisma/client
+# --- FIN DE LA SOLUCIÓN FINAL ---
+
 EXPOSE 3000
-
-# El comando para iniciar la aplicación en modo producción, usando pnpm.
 CMD ["pnpm", "run", "start:prod"]
