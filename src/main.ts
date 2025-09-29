@@ -1,42 +1,70 @@
 // src/main.ts
 import 'dotenv/config';
 import 'tsconfig-paths/register';
-
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '@/app.module';
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-import { envs } from '@/config/envs';
-import { PrismaService } from '@prisma/prisma.service';
+import { envs } from '@/config/envs'; 
+import * as cookieParser from 'cookie-parser';
+import * as bodyParser from 'body-parser';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
-  const logger = new Logger('Bootstrap');
+  const app = await NestFactory.create(AppModule, {
+    // Necesario para leer raw body en webhooks (Stripe)
+    rawBody: true,
+  });
 
+  // Middlewares
+  app.use(cookieParser());
+
+  // Configuración CORS segura (frontend debe coincidir con tu dominio o localhost)
   app.enableCors({
-    origin: ['http://localhost:3000'],
-    credentials: true,
-    methods: ['GET','POST','PUT','DELETE','PATCH','OPTIONS','HEAD'],
-    allowedHeaders: ['Content-Type','Authorization','X-Requested-With','Accept'],
+    origin: [envs.frontendUrl || 'http://localhost:3000'],
+    credentials: true, // Permite cookies/headers de sesión
+    methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'Idempotency-Key',
+      'stripe-signature',
+    ],
     exposedHeaders: ['Set-Cookie'],
   });
 
-  app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }));
+  // Validaciones globales
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+    }),
+  );
 
-  const swaggerConfig = new DocumentBuilder()
-    .setTitle('3er Congreso API').setDescription('API para el 3er Congreso')
-    .setVersion('1.0').addTag('auth').addTag('users').addTag('payments').addTag('stripe')
-    .addBearerAuth().build();
-  const document = SwaggerModule.createDocument(app, swaggerConfig);
-  SwaggerModule.setup('api', app, document);
+  const logger = new Logger('Bootstrap');
 
-  const prisma = app.get(PrismaService);
-  await prisma.enableShutdownHooks(app);
+  // Swagger (documentación)
+  const config = new DocumentBuilder()
+    .setTitle('3er Congreso API')
+    .setDescription(
+      'API para el 3er Congreso - Sistema de pagos y gestión',
+    )
+    .setVersion('1.0')
+    .addTag('payments')
+    .addTag('stripe')
+    .addTag('users')
+    .addTag('auth')
+    .addBearerAuth()
+    .build();
 
-  const port = Number(envs.port) || 3001;
-  await app.listen(port);
-  logger.log(`Application is running on: ${port}`);
-  logger.log(`CORS enabled for: http://localhost:3000`);
-  logger.log(`Swagger documentation available at: http://localhost:${port}/api`);
+  const documentFactory = () => SwaggerModule.createDocument(app, config);
+  SwaggerModule.setup('api', app, documentFactory());
+
+  // Stripe Webhook necesita raw body
+  app.use('/payment-stripe/webhook', bodyParser.raw({ type: '*/*' }));
+
+  // Start server
+  await app.listen(envs.port || 3001);
+  logger.log(`🚀 Application is running on: http://localhost:${envs.port}`);
 }
+
 bootstrap();

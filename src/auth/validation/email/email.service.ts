@@ -1,13 +1,14 @@
-// src/auth/core/email/email.service.ts
+// src/auth/validation/email/email.service.ts
 import * as nodemailer from 'nodemailer';
-import { Injectable } from '@nestjs/common';
+import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class EmailService {
   private transporter: nodemailer.Transporter;
+  private readonly logger = new Logger(EmailService.name);
 
-  constructor(private configService: ConfigService) {
+  constructor(private readonly configService: ConfigService) {
     this.transporter = nodemailer.createTransport({
       service: 'gmail',
       auth: {
@@ -17,7 +18,7 @@ export class EmailService {
     });
   }
 
-  // Método para enviar código de verificación con diseño mejorado
+  /** Enviar código de verificación */
   async sendVerificationCode(to: string, code: string) {
     const htmlContent = this.generateVerificationTemplate(code);
 
@@ -30,14 +31,14 @@ export class EmailService {
 
     try {
       await this.transporter.sendMail(mailOptions);
-      console.log('Correo enviado exitosamente a:', to);
+      this.logger.log(`✅ Correo enviado a ${to}`);
     } catch (error) {
-      console.error('Error enviando correo:', error);
-      throw new Error('No se pudo enviar el correo de verificación');
+      this.logger.error(`❌ Error enviando correo a ${to}`, error.stack);
+      throw new InternalServerErrorException('No se pudo enviar el correo de verificación');
     }
   }
 
-  // Generar plantilla HTML directamente en el código
+  /** Plantilla HTML */
   private generateVerificationTemplate(code: string): string {
     return `
 <!DOCTYPE html>
@@ -60,7 +61,7 @@ export class EmailService {
       box-shadow: 0 4px 6px rgba(0,0,0,0.1);
     }
     .header {
-      background: linear-gradient(135deg, #2c3e50, #3498db);
+      background: linear-gradient(135deg, #132953, #24A1E4);
       color: white;
       padding: 30px 20px;
       text-align: center;
@@ -74,7 +75,7 @@ export class EmailService {
       text-align: center;
       letter-spacing: 8px;
       margin: 30px 0;
-      color: #2c3e50;
+      color: #132953;
       background: #f8f9fa;
       padding: 15px;
       border-radius: 5px;
@@ -103,21 +104,21 @@ export class EmailService {
     
     <div class="content">
       <h3>Estimado participante,</h3>
-      <p>Su código de verificación para el evento es:</p>
+      <p>Tu código de verificación para el evento es:</p>
       
       <div class="code">${code}</div>
       
-      <p>Este código expirará en 10 minutos. Utilícelo para completar su registro.</p>
+      <p>Este código expirará en 10 minutos. Utilízalo para completar tu registro.</p>
       
       <div class="event-info">
         <p><strong>Fecha:</strong> 12-14 Noviembre 2025</p>
-        <p><strong>Lugar:</strong> Avenida, Universidad Tecnológica 1, Santo la Villa. 75481 Tomasabaca, Paz.</p>
+        <p><strong>Lugar:</strong> Universidad Tecnológica de Tecamachalco (UTTECAM)</p>
       </div>
     </div>
     
     <div class="footer">
       <p>© 2025 Congreso Internacional de Tecnologías de la Información</p>
-      <p>Si no solicitó este código, por favor ignore este mensaje.</p>
+      <p>Si no solicitaste este código, ignora este mensaje.</p>
     </div>
   </div>
 </body>

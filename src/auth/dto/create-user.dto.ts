@@ -75,7 +75,7 @@ export class CreateUserDto {
   password_user: string;
   
   // Se asume que este es un campo obligatorio
-  @ValidateIf(o => [1, 2].includes(Number(o.type_user_id))) // solo estudiante(1)/docente(2)
+  @ValidateIf(o => [1, 2, 3].includes(Number(o.type_user_id))) // solo estudiante(1)/docente(2)
   @IsString({ message: 'La procedencia debe ser texto' })
   @MaxLength(255, { message: 'La procedencia es demasiado larga' })
   @IsNotEmpty({ message: 'La procedencia es obligatoria' })

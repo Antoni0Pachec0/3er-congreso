@@ -19,6 +19,8 @@ import { CreateUserDto } from '@auth/dto/create-user.dto';
 import { CreateLoginDto } from '@auth/dto/create-login.dto';
 import { VerifyCodeDto } from '@auth/dto/verify-code.dto';
 import { ResendCodeDto } from '@auth/dto/resend-code.dto';
+import { ForgotPasswordDto } from '@auth/dto/forgot-password.dto';
+import { ResetPasswordDto } from '@auth/dto/reset-password.dto';
 import { Request, Response } from 'express';
 
 interface AuthenticatedRequest extends Request {
@@ -40,9 +42,14 @@ export class AuthController {
   @ApiResponse({ status: 409, description: 'Usuario ya registrado' })
   @Throttle({ default: { limit: 5, ttl: 60 } })
   @Post('register')
-  async register(@Body() createUserDto: CreateUserDto) {
-    return this.authService.createUser(createUserDto);
-  }
+  async register(
+  @Body() createUserDto: CreateUserDto,
+  @Res({ passthrough: true }) res: Response,
+) {
+  // 1. Llamar al servicio, que setea la cookie en 'res'.
+  const result = await this.authService.createUser(createUserDto, res);
+  return result; 
+}
 
   @ApiOperation({ summary: 'Verificar contraseña secreta para registro de ponentes' })
   @ApiResponse({ status: 200, description: 'Contraseña de ponente válida' })
@@ -58,6 +65,21 @@ export class AuthController {
     }
 
     return { ok: true };
+  }
+
+  @ApiOperation({ summary: 'Solicitar recuperación de contraseña' })
+  @ApiResponse({ status: 200, description: 'Código enviado al correo si existe' })
+  @Post('forgot-password')
+  async forgotPassword(@Body() forgotPasswordDto: ForgotPasswordDto) {
+    return this.authService.forgotPassword(forgotPasswordDto);
+  }
+
+  @ApiOperation({ summary: 'Restablecer contraseña' })
+  @ApiResponse({ status: 200, description: 'Contraseña actualizada correctamente' })
+  @ApiResponse({ status: 400, description: 'Error de validación' })
+  @Post('reset-password')
+  async resetPassword(@Body() resetPasswordDto: ResetPasswordDto) {
+    return this.authService.resetPassword(resetPasswordDto);
   }
 
   @ApiOperation({ summary: 'Iniciar sesión con email y contraseña' })
