@@ -39,7 +39,7 @@ export class AuthService {
     private readonly emailService: EmailService,
     private readonly jwtService: JwtService,
     @Inject(CACHE_MANAGER) private cacheManager: any,
-  ) {}
+  ) { }
 
   private generateUniqueToken(): string {
     return nanoid(10);
@@ -292,7 +292,7 @@ export class AuthService {
         baseData.matricula = null;
       } else if (typeUserId === 3) {
         // Externo: Solo procedencia y talla
-        baseData.provenance = provenance;
+        baseData.provenance = provenance || null;
         baseData.educational_program = null;
         baseData.grade = null;
         baseData.group_user = null;
@@ -302,12 +302,22 @@ export class AuthService {
         baseData.provenance = provenance || null;
 
         if (provLower === 'uttecam') {
+          baseData.provenance = 'UTTECAM'; // normaliza
           baseData.matricula = dto.matricula?.trim() || null;
           baseData.educational_program = dto.educational_program?.trim() || null;
           baseData.grade = typeUserId === 1 ? dto.grade?.trim() || null : null;
           baseData.group_user = typeUserId === 1 ? dto.group_user?.trim() || null : null;
+        } else if (provLower === 'otra') {
+          // 👉 GUARDA EL NOMBRE REAL DE LA INSTITUCIÓN
+          const uni = (dto.universidad_procedencia || '').trim();
+          baseData.provenance = uni || 'Otra';
+          baseData.matricula = null;
+          baseData.educational_program = null;
+          baseData.grade = null;
+          baseData.group_user = null;
         } else {
-          // "otra": no hay columnas específicas en users para universidad_procedencia
+          // Cualquier otro literal (por ejemplo nombre directo)
+          baseData.provenance = provenance || null;
           baseData.matricula = null;
           baseData.educational_program = null;
           baseData.grade = null;
@@ -483,9 +493,22 @@ export class AuthService {
     }
   }
 
+  private async safeRetry<T>(fn: () => Promise<T>, retries = 2): Promise<T> {
+    let lastErr: any;
+    for (let i = 0; i <= retries; i++) {
+      try {
+        return await fn();
+      } catch (e) {
+        lastErr = e;
+      }
+    }
+    throw lastErr;
+  }
+
   async verifyCode(dto: VerifyCodeDto) {
     const email = dto.email?.toLowerCase().trim();
     const code = String(dto.code || '').trim();
+
     if (!email || !/^\d{6}$/.test(code)) {
       throw new UnauthorizedException('Código de verificación inválido o expirado');
     }
@@ -493,6 +516,7 @@ export class AuthService {
     const user = await this.prisma.users.findUnique({ where: { email } });
     if (!user) throw new UnauthorizedException('Código de verificación inválido o expirado');
 
+    // último token válido
     const token = await this.prisma.verification_token.findFirst({
       where: {
         user_id: user.user_id,
@@ -513,27 +537,32 @@ export class AuthService {
       throw new UnauthorizedException('Demasiados intentos. Solicita un nuevo código.');
     }
 
-    await this.prisma.$transaction(async (tx) => {
-      await tx.users.update({
+    // 1) Activar usuario
+    await this.safeRetry(() =>
+      this.prisma.users.update({
         where: { user_id: user.user_id },
         data: { status: 'active' as status_user },
-      });
+      }),
+    );
 
-      await tx.verification_token.update({
+    // 2) Marcar este token como usado
+    await this.safeRetry(() =>
+      this.prisma.verification_token.update({
         where: { verification_token_id: token.verification_token_id },
         data: { used: true, used_at: new Date() },
-      });
+      }),
+    );
 
-      await tx.verification_token.updateMany({
-        where: {
-          user_id: user.user_id,
-          token_type: 'email_verification',
-          used: false,
-          verification_token_id: { not: token.verification_token_id },
-        },
-        data: { used: true },
-      });
-    });
+    // 3) Invalidar otros tokens pendientes (best effort)
+    await this.prisma.verification_token.updateMany({
+      where: {
+        user_id: user.user_id,
+        token_type: 'email_verification',
+        used: false,
+        verification_token_id: { not: token.verification_token_id },
+      },
+      data: { used: true },
+    }).catch(() => { /* no-op */ });
 
     return { message: 'Usuario verificado exitosamente', user_id: Number(user.user_id) };
   }
@@ -571,7 +600,7 @@ export class AuthService {
       where: {
         user_id: user.user_id,
         token_type: 'email_verification',
-        created_at: { gte: new Date(Date.now() + -RESEND_COOLDOWN_MS) },
+        created_at: { gte: new Date(Date.now() - RESEND_COOLDOWN_MS) }, // 👈
         used: false,
       },
       orderBy: { created_at: 'desc' },
@@ -621,8 +650,8 @@ export class AuthService {
         expiresIn: process.env.JWT_ACCESS_EXPIRES_IN || '1h',
       });
       const newRefreshToken = this.jwtService.sign(
-      { ...payload, isRefreshToken: true },
-      { expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d' },
+        { ...payload, isRefreshToken: true },
+        { expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d' },
       );
 
       await this.prisma.verification_token.create({
