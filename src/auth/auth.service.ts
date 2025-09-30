@@ -32,6 +32,16 @@ import { Response } from 'express';
 
 type Tx = Prisma.TransactionClient;
 
+// Tipo explícito para el resultado del login
+export type LoginResult =
+  | { message: string; accessToken: string; refreshToken: string; user_id: number }
+  | {
+      require_verification: true;
+      message: string;
+      user: { user_id: number; email: string; name_user?: string };
+      verify_token?: string;
+    };
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -455,7 +465,7 @@ async resetPassword(dto: ResetPasswordDto) {
 }
 
 
-  async loginUser(dto: CreateLoginDto) {
+  async loginUser(dto: CreateLoginDto): Promise<LoginResult> {
     try {
       const user = await this.prisma.users.findUnique({
         where: { email: dto.email.toLowerCase().trim() },
@@ -476,14 +486,18 @@ async resetPassword(dto: ResetPasswordDto) {
         });
         this.emailService.sendVerificationCode(user.email, newCode).catch(console.error);
 
+        // Emitir cookie/verif token de fallback (igual que en registro)
+        const fallbackVerifyToken = this.issueVerifyCookie(user.user_id, user.email);
+
         return {
           require_verification: true,
           message: 'Tu cuenta está inactiva. Revisa tu correo para el código.',
           user: {
             user_id: Number(user.user_id),
             email: user.email,
-            name_user: user.name_user,
+            name_user: user.name_user ?? undefined,
           },
+          ...(fallbackVerifyToken ? { verify_token: fallbackVerifyToken } : {}),
         };
       }
 

@@ -15,6 +15,7 @@ import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagg
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { JwtAuthGuard } from '@/auth/validation/guards/jwt.guard';
 import { AuthService } from '@auth/auth.service';
+import type { LoginResult } from '@auth/auth.service';
 import { CreateUserDto } from '@auth/dto/create-user.dto';
 import { CreateLoginDto } from '@auth/dto/create-login.dto';
 import { VerifyCodeDto } from '@auth/dto/verify-code.dto';
@@ -34,7 +35,7 @@ interface AuthenticatedRequest extends Request {
 @UseGuards(ThrottlerGuard)
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(private readonly authService: AuthService) { }
 
   @ApiOperation({ summary: 'Registrar un nuevo usuario' })
   @ApiResponse({ status: 201, description: 'Usuario creado correctamente' })
@@ -43,13 +44,13 @@ export class AuthController {
   @Throttle({ default: { limit: 5, ttl: 60 } })
   @Post('register')
   async register(
-  @Body() createUserDto: CreateUserDto,
-  @Res({ passthrough: true }) res: Response,
-) {
-  // 1. Llamar al servicio, que setea la cookie en 'res'.
-  const result = await this.authService.createUser(createUserDto, res);
-  return result; 
-}
+    @Body() createUserDto: CreateUserDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    // 1. Llamar al servicio, que setea la cookie en 'res'.
+    const result = await this.authService.createUser(createUserDto, res);
+    return result;
+  }
 
   @ApiOperation({ summary: 'Verificar contraseña secreta para registro de ponentes' })
   @ApiResponse({ status: 200, description: 'Contraseña de ponente válida' })
@@ -58,7 +59,7 @@ export class AuthController {
   @Post('speakers/check-secret')
   checkSpeakerSecret(@Body() body: { secret_password: string }) {
     const secret = (process.env.SPEAKER_SECRET || '').trim();
-    
+
     // La excepción correcta para credenciales inválidas es 401 Unauthorized
     if (!secret || (body.secret_password || '').trim() !== secret) {
       throw new UnauthorizedException('Contraseña de ponente inválida');
@@ -83,13 +84,25 @@ export class AuthController {
   }
 
   @ApiOperation({ summary: 'Iniciar sesión con email y contraseña' })
-  @ApiResponse({ status: 200, description: 'Inicio de sesión exitoso' })
+  @ApiResponse({ status: 200, description: 'Inicio de sesión exitoso o verificación requerida' }) // Actualizar descripción
   @ApiResponse({ status: 401, description: 'Credenciales inválidas' })
   @Throttle({ default: { limit: 5, ttl: 60 } })
   @HttpCode(HttpStatus.OK)
-  @Post('login')
   async login(@Body() loginDto: CreateLoginDto, @Res({ passthrough: true }) res: Response) {
-    const { accessToken, refreshToken } = await this.authService.loginUser(loginDto);
+    // 1. Llamamos al servicio y recibimos la respuesta completa
+    const result = await this.authService.loginUser(loginDto) as LoginResult;
+
+    // 2. Verificar si se requiere verificación de cuenta (narrowing con 'in')
+    if ('require_verification' in result && result.require_verification) {
+      // Si la cuenta está inactiva, devolvemos el objeto directamente.
+      // NO intentamos establecer cookies.
+      return result;
+    }
+
+    // 3. Flujo normal (login exitoso): Establecer cookies y devolver mensaje
+    // TS ya ha hecho narrowing, pero forzamos tipo explícito para mayor claridad
+    const { accessToken, refreshToken } = result as { accessToken: string; refreshToken: string };
+
     res.cookie('accessToken', accessToken, {
       httpOnly: true,
       secure: true,
@@ -102,6 +115,7 @@ export class AuthController {
       sameSite: 'strict',
       maxAge: 1000 * 60 * 60 * 24 * 7,
     });
+
     return { message: 'Inicio de sesión exitoso' };
   }
 
