@@ -1,18 +1,18 @@
 import {
-  UnauthorizedException,
-  NotFoundException,
-  Injectable,
-  ConflictException,
-  InternalServerErrorException,
-  BadRequestException,
-  Inject,
-  ServiceUnavailableException,
-  HttpException,
+  UnauthorizedException,
+  NotFoundException,
+  Injectable,
+  ConflictException,
+  InternalServerErrorException,
+  BadRequestException,
+  Inject,
+  ServiceUnavailableException,
+  HttpException,
 } from '@nestjs/common';
 import {
-  VERIFICATION_TTL_MS,
-  RESEND_COOLDOWN_MS,
-  MAX_ATTEMPTS,
+  VERIFICATION_TTL_MS,
+  RESEND_COOLDOWN_MS,
+  MAX_ATTEMPTS,
 } from '@/common/tokens.constants';
 import { PrismaService } from '@prisma/prisma.service';
 import { CreateUserDto } from '@auth/dto/create-user.dto';
