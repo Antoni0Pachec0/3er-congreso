@@ -6,6 +6,7 @@ datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
   schemas  = ["public"]
+<<<<<<< HEAD
 }
 
 model Payment {
@@ -31,6 +32,8 @@ model Payment {
   users               users?   @relation(fields: [userId], references: [user_id])
 
   @@index([userId])
+=======
+>>>>>>> mcc
 }
 
 model attendance {
@@ -53,6 +56,7 @@ model game_score {
   users         users?    @relation(fields: [user_id], references: [user_id], onDelete: NoAction, onUpdate: NoAction)
 
   @@schema("public")
+<<<<<<< HEAD
 }
 
 model game_score {
@@ -61,6 +65,8 @@ model game_score {
   created_at    DateTime? @default(now()) @db.Timestamp(6)
   user_id       BigInt?
   users         users?    @relation(fields: [user_id], references: [user_id], onDelete: NoAction, onUpdate: NoAction)
+=======
+>>>>>>> mcc
 }
 
 model item {
@@ -94,6 +100,7 @@ model qr_code {
   workshop    workshop?    @relation(fields: [workshop_id], references: [workshop_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_workshop_id")
 
   @@schema("public")
+<<<<<<< HEAD
 }
 
 model red_social {
@@ -101,6 +108,8 @@ model red_social {
   nombre         String?          @db.VarChar(255)
   descript       String?
   url_red_social url_red_social[]
+=======
+>>>>>>> mcc
 }
 
 model relation_kit_item {
@@ -129,6 +138,7 @@ model schedule {
   workshop        workshop?      @relation(fields: [workshop_id], references: [workshop_id], onDelete: NoAction, onUpdate: NoAction)
 
   @@schema("public")
+<<<<<<< HEAD
 }
 
 model speaker_profiles {
@@ -139,6 +149,8 @@ model speaker_profiles {
   personal_description String?
   user_id              BigInt?
   users                users?  @relation(fields: [user_id], references: [user_id], onDelete: NoAction, onUpdate: NoAction)
+=======
+>>>>>>> mcc
 }
 
 model type_user {
@@ -150,6 +162,7 @@ model type_user {
   users        users[]
 
   @@schema("public")
+<<<<<<< HEAD
 }
 
 model url_red_social {
@@ -159,6 +172,8 @@ model url_red_social {
   user_id           BigInt?
   red_social        red_social? @relation(fields: [red_social_id], references: [red_social_id], onDelete: NoAction, onUpdate: NoAction)
   users             users?      @relation(fields: [user_id], references: [user_id], onDelete: NoAction, onUpdate: NoAction)
+=======
+>>>>>>> mcc
 }
 
 model users {
@@ -227,7 +242,6 @@ model workshop {
   schedule                                 schedule[]
   users_users_workshop_idToworkshop        users[]      @relation("users_workshop_idToworkshop")
   users_workshop_instructor_user_idTousers users?       @relation("workshop_instructor_user_idTousers", fields: [instructor_user_id], references: [user_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_instructor_user_id")
-}
 
   @@schema("public")
 }

@@ -1,15 +1,16 @@
-import { Controller, Post, Body, HttpCode, HttpStatus, Param } from '@nestjs/common';
+import { Controller, Post, Body, HttpCode, HttpStatus, Param, Req, Headers } from '@nestjs/common';
 import { PaymentStripeService } from '../service/payment-stripe.service';
 import { CreateCheckoutSessionDto } from '../dto/stripe-payment-create-body.dto';
 import { ApiTags, ApiOperation, ApiResponse, ApiBody } from '@nestjs/swagger';
 import { CheckoutSessionResponseDto } from '../dto/checkout-session-response.dto';
 import { VerifyPaymentResponseDto } from '../dto/verify-payment-response.dto';
 import { StripeErrorDto } from '../dto/stripe-error.dto';
+import Stripe from 'stripe';
 
 @ApiTags('stripe')
 @Controller('payment-stripe')
 export class PaymentStripeController {
-    constructor(private readonly paymentStripeService: PaymentStripeService) { }
+        constructor(private readonly paymentStripeService: PaymentStripeService) { }
 
     @Post('create-checkout-session')
     @HttpCode(HttpStatus.OK)
@@ -63,5 +64,22 @@ export class PaymentStripeController {
     })
     async verifyPayment(@Param('sessionId') sessionId: string) {
         return await this.paymentStripeService.verifyCheckoutSessionPayment(sessionId);
+    }
+
+    @Post('webhook')
+    @HttpCode(HttpStatus.OK)
+    async webhook(@Req() req: Request, @Headers('stripe-signature') sig: string) {
+        const secret = this.paymentStripeService.getWebhookSecret();
+        const event = this.paymentStripeService.constructEventFromPayload(
+            (req as any).rawBody || (req as any).body,
+            sig,
+            secret,
+        );
+
+        if (event.type === 'checkout.session.completed') {
+            const session = event.data.object as Stripe.Checkout.Session;
+            await this.paymentStripeService.markPaidFromSession(session);  // Ensure this method exists
+        }
+        return { received: true };
     }
 }
