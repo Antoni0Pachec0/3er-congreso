@@ -163,7 +163,7 @@ export class AuthController {
     // Destructuring con alias para que TypeScript reconozca la variable
     const { accessToken, refreshToken: newRefreshToken } = await this.authService.refreshToken(refreshToken);
 
-    // Configurar cookies
+    // Configurar cookies 
     res.cookie('accessToken', accessToken, {
       httpOnly: true,
       secure: true,
