@@ -84,39 +84,49 @@ export class AuthController {
   }
 
   @ApiOperation({ summary: 'Iniciar sesión con email y contraseña' })
-  @ApiResponse({ status: 200, description: 'Inicio de sesión exitoso o verificación requerida' }) // Actualizar descripción
+  @ApiResponse({ status: 200, description: 'Inicio de sesión exitoso o verificación requerida' })
   @ApiResponse({ status: 401, description: 'Credenciales inválidas' })
   @Throttle({ default: { limit: 5, ttl: 60 } })
   @HttpCode(HttpStatus.OK)
+  @Post('login') // 👈 La corrección clave: POST y 'login'
   async login(@Body() loginDto: CreateLoginDto, @Res({ passthrough: true }) res: Response) {
     // 1. Llamamos al servicio y recibimos la respuesta completa
     const result = await this.authService.loginUser(loginDto) as LoginResult;
 
-    // 2. Verificar si se requiere verificación de cuenta (narrowing con 'in')
+    // 2. Verificar si se requiere verificación de cuenta
     if ('require_verification' in result && result.require_verification) {
-      // Si la cuenta está inactiva, devolvemos el objeto directamente.
-      // NO intentamos establecer cookies.
+      // Devolvemos el objeto de verificación
       return result;
     }
 
-    // 3. Flujo normal (login exitoso): Establecer cookies y devolver mensaje
-    // TS ya ha hecho narrowing, pero forzamos tipo explícito para mayor claridad
-    const { accessToken, refreshToken } = result as { accessToken: string; refreshToken: string };
+    // 3. Flujo normal (login exitoso):
+    // Desestructuramos para extraer tokens, user_id y message.
+    const { accessToken, refreshToken, user_id, message } = result as {
+      accessToken: string;
+      refreshToken: string;
+      user_id: number;
+      message: string;
+    };
 
+    // 4. Establecer cookies
     res.cookie('accessToken', accessToken, {
       httpOnly: true,
-      secure: true,
+      secure: process.env.NODE_ENV === 'production', // Usar 'secure: true' solo en producción
       sameSite: 'strict',
-      maxAge: 1000 * 60 * 15,
+      maxAge: 1000 * 60 * 15, // 15 minutos
     });
     res.cookie('refreshToken', refreshToken, {
       httpOnly: true,
-      secure: true,
+      secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',
-      maxAge: 1000 * 60 * 60 * 24 * 7,
+      maxAge: 1000 * 60 * 60 * 24 * 7, // 7 días
     });
 
-    return { message: 'Inicio de sesión exitoso' };
+    // 5. Devolver mensaje y user_id
+    return {
+      message: message,
+      user_id: user_id,
+    };
   }
 
   @ApiOperation({ summary: 'Verificar cuenta con código enviado por correo' })
