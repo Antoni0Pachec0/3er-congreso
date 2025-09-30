@@ -5,6 +5,7 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+  schemas  = ["public"]
 }
 
 model Payment {
@@ -39,6 +40,19 @@ model attendance {
   user_id       BigInt?
   qr_code       qr_code?  @relation(fields: [qr_code_id], references: [qr_code_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_qr_code_id")
   users         users?    @relation(fields: [user_id], references: [user_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_user_id")
+
+  @@schema("public")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model game_score {
+  game_score_id BigInt    @id @default(autoincrement())
+  score         Int
+  created_at    DateTime? @default(now()) @db.Timestamp(6)
+  user_id       BigInt?
+  users         users?    @relation(fields: [user_id], references: [user_id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@schema("public")
 }
 
 model game_score {
@@ -56,6 +70,8 @@ model item {
   descript          String?
   price             Decimal?            @db.Decimal(8, 2)
   relation_kit_item relation_kit_item[]
+
+  @@schema("public")
 }
 
 model kit {
@@ -65,6 +81,8 @@ model kit {
   price             Decimal?            @db.Decimal(8, 2)
   relation_kit_item relation_kit_item[]
   users             users[]
+
+  @@schema("public")
 }
 
 model qr_code {
@@ -74,6 +92,8 @@ model qr_code {
   workshop_id BigInt?
   attendance  attendance[]
   workshop    workshop?    @relation(fields: [workshop_id], references: [workshop_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_workshop_id")
+
+  @@schema("public")
 }
 
 model red_social {
@@ -91,6 +111,8 @@ model relation_kit_item {
   item_id     BigInt?
   item        item?     @relation(fields: [item_id], references: [item_id], onDelete: NoAction, onUpdate: NoAction)
   kit         kit?      @relation(fields: [kit_id], references: [kit_id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@schema("public")
 }
 
 model schedule {
@@ -105,6 +127,8 @@ model schedule {
   speaker_id      BigInt?
   users           users?         @relation(fields: [speaker_id], references: [user_id], onDelete: NoAction, onUpdate: NoAction)
   workshop        workshop?      @relation(fields: [workshop_id], references: [workshop_id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@schema("public")
 }
 
 model speaker_profiles {
@@ -124,6 +148,8 @@ model type_user {
   created_at   DateTime? @default(now()) @db.Timestamp(6)
   updated_at   DateTime? @default(now()) @db.Timestamp(6)
   users        users[]
+
+  @@schema("public")
 }
 
 model url_red_social {
@@ -166,6 +192,8 @@ model users {
   kit                                         kit?                 @relation(fields: [kit_id], references: [kit_id], onDelete: NoAction, onUpdate: NoAction)
   verification_token                          verification_token[]
   workshop_workshop_instructor_user_idTousers workshop[]           @relation("workshop_instructor_user_idTousers")
+
+  @@schema("public")
 }
 
 model verification_token {
@@ -179,6 +207,8 @@ model verification_token {
   attempts              Int?      @default(0)
   user_id               BigInt?
   users                 users?    @relation(fields: [user_id], references: [user_id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@schema("public")
 }
 
 model workshop {
@@ -199,6 +229,67 @@ model workshop {
   users_workshop_instructor_user_idTousers users?       @relation("workshop_instructor_user_idTousers", fields: [instructor_user_id], references: [user_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_instructor_user_id")
 }
 
+  @@schema("public")
+}
+
+model Payment {
+  id                  String   @id @default(cuid())
+  sessionId           String   @unique
+  paymentIntentId     String?  @unique
+  chargeId            String?  @unique
+  status              String
+  paymentStatus       String
+  amountTotal         Int
+  currency            String
+  customerId          String?
+  customerEmail       String?
+  mode                String?
+  clientReferenceId   String?
+  metadata            Json?
+  paymentIntentStatus String?
+  paymentMethodType   String?
+  receiptUrl          String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  userId              BigInt?
+  user                users?   @relation(fields: [userId], references: [user_id])
+
+  @@index([userId])
+  @@schema("public")
+}
+
+model red_social {
+  red_social_id  BigInt           @id @default(autoincrement())
+  nombre         String?          @db.VarChar(255)
+  descript       String?
+  url_red_social url_red_social[]
+
+  @@schema("public")
+}
+
+model speaker_profiles {
+  id_speaker_profile   BigInt  @id @default(autoincrement())
+  name_company         String? @db.VarChar(255)
+  rol_event            String? @db.VarChar(255)
+  rol_company          String? @db.VarChar(255)
+  personal_description String?
+  user_id              BigInt?
+  users                users?  @relation(fields: [user_id], references: [user_id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@schema("public")
+}
+
+model url_red_social {
+  url_red_social_id BigInt      @id @default(autoincrement())
+  url               String?     @db.VarChar(355)
+  red_social_id     BigInt?
+  user_id           BigInt?
+  red_social        red_social? @relation(fields: [red_social_id], references: [red_social_id], onDelete: NoAction, onUpdate: NoAction)
+  users             users?      @relation(fields: [user_id], references: [user_id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@schema("public")
+}
+
 enum day_week_enum {
   Lunes
   Martes
@@ -207,6 +298,8 @@ enum day_week_enum {
   Viernes
   Sabado
   Domingo
+
+  @@schema("public")
 }
 
 enum size_enum {
@@ -216,12 +309,16 @@ enum size_enum {
   XL
   XXL
   XXXL
+
+  @@schema("public")
 }
 
 enum status_enum {
   active
   cancelled
   completed
+
+  @@schema("public")
 }
 
 enum status_user {
@@ -229,4 +326,6 @@ enum status_user {
   inactive
   suspended
   deleted
+
+  @@schema("public")
 }

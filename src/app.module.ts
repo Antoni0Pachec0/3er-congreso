@@ -6,6 +6,7 @@ import { AuthModule } from '@/auth/auth.module';
 import { UserModule } from '@/user/user.module';
 import { ScheduleModule } from '@/schedule/schedule.module';
 import { PrismaModule } from '@prisma/prisma.module';
+import { ScoresModule } from './game/scores/scores.module';
 import { PaymentStripeModule } from './payment-stripe/payment-stripe.module';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
@@ -19,6 +20,10 @@ import { APP_GUARD } from '@nestjs/core';
     }]),
     AuthModule,
     PrismaModule,
+    UserModule, 
+    ScheduleModule, 
+    PaymentStripeModule,
+    ScoresModule,
     UserModule,
     ScheduleModule,
     PaymentStripeModule,
