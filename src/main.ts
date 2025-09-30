@@ -23,8 +23,6 @@ async function bootstrap() {
   });
 
   app.use(cookieParser());
-  // CORS (ajusta el origin a tu front)
-  const app = await NestFactory.create(AppModule);
   
   app.useGlobalFilters(new HttpExceptionFilter());
 
@@ -38,10 +36,6 @@ async function bootstrap() {
       'Idempotency-Key',
       'stripe-signature',
     ],
-    origin: ['https://congresoti.com.mx/'],
-    credentials: true,
-    methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'Idempotency-Key', 'stripe-signature'],
     exposedHeaders: ['Set-Cookie'],
   });
 
