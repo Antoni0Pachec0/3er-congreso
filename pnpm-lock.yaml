@@ -128,6 +128,9 @@ importers:
       swagger:
         specifier: ^0.0.1
         version: 0.0.1
+      tsconfig-paths:
+        specifier: ^4.2.0
+        version: 4.2.0
       typeorm:
         specifier: ^0.3.27
         version: 0.3.27(ioredis@5.8.0)(reflect-metadata@0.2.2)(ts-node@10.9.2(@swc/core@1.13.5)(@types/node@22.18.7)(typescript@5.9.2))
@@ -210,9 +213,6 @@ importers:
       ts-node:
         specifier: ^10.9.2
         version: 10.9.2(@swc/core@1.13.5)(@types/node@22.18.7)(typescript@5.9.2)
-      tsconfig-paths:
-        specifier: ^4.2.0
-        version: 4.2.0
       typescript:
         specifier: ^5.9.2
         version: 5.9.2
