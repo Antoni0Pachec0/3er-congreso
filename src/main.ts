@@ -29,12 +29,29 @@ async function bootstrap() {
   app.useGlobalFilters(new HttpExceptionFilter());
 
   app.enableCors({
+    origin: [envs.frontendUrl || 'http://localhost:3000'],
+    credentials: true, // Permite cookies/headers de sesión
+    methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'Idempotency-Key',
+      'stripe-signature',
+    ],
     origin: ['https://congresoti.com.mx/'],
     credentials: true,
     methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'Idempotency-Key', 'stripe-signature'],
     exposedHeaders: ['Set-Cookie'],
   });
+
+  // Validaciones globales
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+    }),
+  );
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }));
 
   const logger = new Logger('Bootstrap');
@@ -62,4 +79,5 @@ async function bootstrap() {
   await app.listen(envs.port);
   logger.log(`Application is running on: ${envs.port}`);
 }
+
 bootstrap();
