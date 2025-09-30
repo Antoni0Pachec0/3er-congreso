@@ -1,16 +1,20 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsNotEmpty, IsEmail } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsEmail, Length, IsIn, IsOptional, Matches } from 'class-validator';
+import { Transform } from 'class-transformer';
 
 export class VerifyCodeDto {
-  /** User email */
-  @ApiProperty({ example: 'user@example.com', description: 'User email for verification' })
-  @IsEmail({}, { message: 'El email debe ser válido' })
-  @IsNotEmpty({ message: 'El email es obligatorio' })
-  public email: string;
+  @ApiProperty({ example: 'user@example.com', description: 'Correo del usuario' })
+  @IsEmail({}, { message: 'Debe ser un email válido' })
+  @Transform(({ value }) => value?.toLowerCase().trim())
+  email: string;
 
-  /** Verification code */
-  @ApiProperty({ example: '123456', description: 'Verification code sent to email' })
-  @IsString({ message: 'El código de verificación debe ser un texto' })
-  @IsNotEmpty({ message: 'El código de verificación es obligatorio' })
-  public code: string;
+  @ApiProperty({ example: '123456', description: 'Código de 6 dígitos' })
+  @Length(6, 6, { message: 'El código debe tener 6 dígitos' })
+  @Matches(/^\d{6}$/, { message: 'El código debe ser numérico' })
+  code: string;
+
+  @ApiPropertyOptional({ enum: ['email_verification', 'reset_password'], description: 'Tipo de verificación' })
+  @IsOptional()
+  @IsIn(['email_verification', 'reset_password'])
+  token_type?: 'email_verification' | 'reset_password' = 'email_verification';
 }

@@ -402,18 +402,58 @@ export class AuthService {
     return { message: 'Código enviado, revisa tu correo' };
   }
 
-  async resetPassword(dto: ResetPasswordDto) {
-    const email = dto.email.toLowerCase().trim();
-    const user = await this.prisma.users.findUnique({ where: { email } });
-    if (!user) throw new UnauthorizedException('Usuario no encontrado');
+  // src/auth/auth.service.ts (método resetPassword)
+async resetPassword(dto: ResetPasswordDto) {
+  const email = dto.email.toLowerCase().trim();
+  const user = await this.prisma.users.findUnique({ where: { email } });
+  if (!user) throw new UnauthorizedException('Usuario no encontrado');
 
-    const hashed = await bcrypt.hash(dto.password, 12);
-    await this.prisma.users.update({
+  // ✅ buscar token de tipo reset_password
+  const token = await this.prisma.verification_token.findFirst({
+    where: {
+      user_id: user.user_id,
+      token: dto.code,
+      token_type: 'reset_password',
+      used: false,
+      expires_at: { gt: new Date() },
+    },
+    orderBy: { created_at: 'desc' },
+  });
+
+  if (!token) {
+    // (opcional) aumentar intentos si quieres llevar conteo
+    throw new UnauthorizedException('Código inválido o expirado');
+  }
+
+  const hashed = await bcrypt.hash(dto.password, 12);
+
+  await this.prisma.$transaction(async (tx) => {
+    await tx.users.update({
       where: { user_id: user.user_id },
       data: { password_user: hashed },
     });
-    return { message: 'Contraseña actualizada correctamente' };
-  }
+
+    // marcar este token como usado
+    await tx.verification_token.update({
+      where: { verification_token_id: token.verification_token_id },
+      data: { used: true, used_at: new Date() },
+    });
+
+    // (opcional) invalidar otros tokens de reset pendientes
+    await tx.verification_token.updateMany({
+      where: {
+        user_id: user.user_id,
+        token_type: 'reset_password',
+        used: false,
+        verification_token_id: { not: token.verification_token_id },
+      },
+      data: { used: true },
+    });
+  });
+
+  return { message: 'Contraseña actualizada correctamente' };
+}
+
 
   async loginUser(dto: CreateLoginDto) {
     try {
@@ -483,9 +523,12 @@ export class AuthService {
     }
   }
 
+  // auth.service.ts
   async verifyCode(dto: VerifyCodeDto) {
     const email = dto.email?.toLowerCase().trim();
     const code = String(dto.code || '').trim();
+    const tokenType = dto.token_type || 'email_verification'; // ✅ usar token_type
+
     if (!email || !/^\d{6}$/.test(code)) {
       throw new UnauthorizedException('Código de verificación inválido o expirado');
     }
@@ -497,7 +540,7 @@ export class AuthService {
       where: {
         user_id: user.user_id,
         token: code,
-        token_type: 'email_verification',
+        token_type: tokenType,          // ✅ clave: usar el tipo que llega
         used: false,
         expires_at: { gt: new Date() },
       },
@@ -505,7 +548,8 @@ export class AuthService {
     });
 
     if (!token) {
-      await this.incrementVerificationAttempts(user.user_id);
+      // (opcional) intenta incrementar intentos por tipo
+      await this.incrementVerificationAttemptsByType(user.user_id, tokenType);
       throw new UnauthorizedException('Código de verificación inválido o expirado');
     }
 
@@ -513,29 +557,60 @@ export class AuthService {
       throw new UnauthorizedException('Demasiados intentos. Solicita un nuevo código.');
     }
 
-    await this.prisma.$transaction(async (tx) => {
-      await tx.users.update({
-        where: { user_id: user.user_id },
-        data: { status: 'active' as status_user },
+    if (tokenType === 'email_verification') {
+      // ✔ activar cuenta y consumir token de verificación de email
+      await this.prisma.$transaction(async (tx) => {
+        await tx.users.update({
+          where: { user_id: user.user_id },
+          data: { status: 'active' as status_user },
+        });
+
+        await tx.verification_token.update({
+          where: { verification_token_id: token.verification_token_id },
+          data: { used: true, used_at: new Date() },
+        });
+
+        await tx.verification_token.updateMany({
+          where: {
+            user_id: user.user_id,
+            token_type: 'email_verification',
+            used: false,
+            verification_token_id: { not: token.verification_token_id },
+          },
+          data: { used: true },
+        });
       });
 
-      await tx.verification_token.update({
-        where: { verification_token_id: token.verification_token_id },
-        data: { used: true, used_at: new Date() },
-      });
+      return { message: 'Usuario verificado exitosamente', user_id: Number(user.user_id) };
+    }
 
-      await tx.verification_token.updateMany({
+    // token_type === 'reset_password'
+    // ✔ Solo validar existencia; NO consumimos aquí.
+    // El consumo se hace en resetPassword() cuando ya cambian la contraseña.
+    return { ok: true, message: 'Código válido para restablecer contraseña' };
+  }
+
+  // helper nuevo
+  private async incrementVerificationAttemptsByType(userId: bigint, tokenType: 'email_verification' | 'reset_password') {
+    try {
+      const latestToken = await this.prisma.verification_token.findFirst({
         where: {
-          user_id: user.user_id,
-          token_type: 'email_verification',
+          user_id: userId,
+          token_type: tokenType,
           used: false,
-          verification_token_id: { not: token.verification_token_id },
+          created_at: { gte: new Date(Date.now() - VERIFICATION_TTL_MS) },
         },
-        data: { used: true },
+        orderBy: { created_at: 'desc' },
       });
-    });
-
-    return { message: 'Usuario verificado exitosamente', user_id: Number(user.user_id) };
+      if (latestToken) {
+        await this.prisma.verification_token.update({
+          where: { verification_token_id: latestToken.verification_token_id },
+          data: { attempts: { increment: 1 } },
+        });
+      }
+    } catch (e) {
+      console.error('Error incrementando intentos:', e);
+    }
   }
 
   private async incrementVerificationAttempts(userId: bigint) {
