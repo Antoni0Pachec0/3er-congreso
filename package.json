@@ -45,6 +45,7 @@
     "cache-manager-ioredis": "^2.1.0",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.2",
+    "cookie-parser": "^1.4.7",
     "create-payment": "^0.0.1-claimed",
     "dotenv": "^17.2.2",
     "ioredis": "^5.7.0",
