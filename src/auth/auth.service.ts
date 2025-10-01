@@ -281,6 +281,16 @@ export class AuthService {
             expires_at: new Date(Date.now() + VERIFICATION_TTL_MS),
           },
         },
+        ...(typeUserId === 4 ? {} : { /* nada académico por ahora */ }),
+        ...(typeUserId === 3 ? {} : {
+          provenance: (dto.provenance || '').trim() || null,
+        }),
+        ...((typeUserId === 1 || typeUserId === 2) && (dto.provenance || '').toLowerCase() === 'uttecam' ? {
+          matricula: dto.matricula?.trim() || null,
+          educational_program: dto.educational_program?.trim() || null,
+          grade: typeUserId === 1 ? dto.grade?.trim() || null : null,
+          group_user: typeUserId === 1 ? dto.group_user?.trim() || null : null,
+        } : {}),
       };
 
       // Campos por tipo
