@@ -11,7 +11,6 @@ import * as tsConfigPaths from 'tsconfig-paths';
 import { join } from 'path';
 import { config } from 'dotenv';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-import { envs } from '@/config/envs'; 
 import * as cookieParser from 'cookie-parser';
 import * as bodyParser from 'body-parser';
 
