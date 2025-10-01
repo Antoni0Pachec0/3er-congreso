@@ -238,15 +238,6 @@ export class AuthService {
       }
     }
 
-    // Externo (3) => requerimos procedencia y NO guardamos datos académicos
-    if (typeUserId === 3) {
-      if (!provenance) {
-        throw new BadRequestException(
-          'La procedencia es obligatoria para usuarios externos',
-        );
-      }
-    }
-
     if (!dto.size_user) {
       throw new BadRequestException('Debes seleccionar una talla');
     }
