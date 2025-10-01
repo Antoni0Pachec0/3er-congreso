@@ -293,7 +293,7 @@ export class AuthService {
         baseData.matricula = null;
       } else if (typeUserId === 3) {
         // Externo: Solo procedencia y talla
-        baseData.provenance = provenance;
+        baseData.provenance = null;
         baseData.educational_program = null;
         baseData.grade = null;
         baseData.group_user = null;
