@@ -26,4 +26,10 @@ export class VerifyPaymentResponseDto {
         example: 1500
     })
     amount: number;
+
+    @ApiProperty({example: 'mxn' })
+    currency: string;
+
+    @ApiProperty({ example: 'cs_test_123' })
+    sessionId: string;
 }

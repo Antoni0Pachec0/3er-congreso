@@ -1,5 +1,5 @@
 // src/payment/stripe/dto/checkout-session.dto.ts
-import { IsArray, IsInt, IsOptional, IsPositive, IsString, IsUrl, ValidateNested } from 'class-validator';
+import { IsArray, IsEmail, IsInt, IsOptional, IsPositive, IsString, IsUrl, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty } from '@nestjs/swagger';
 
@@ -42,32 +42,24 @@ export class CreateCheckoutSessionDto {
     @IsArray()
     @ValidateNested({ each: true })
     @Type(() => LineItemDto)
-    items: LineItemDto[];  
+    items: LineItemDto[];
 
-    @ApiProperty({
-        description: 'URL a la que se redirigirá después de un pago exitoso',
-        example: 'https://tudominio.com/payment/success',
-        required: false
-    })
+    @ApiProperty({ required: false, example: 'https://tu-front.com/payment/return' })
     @IsOptional()
-    @IsUrl()
-    successUrl?: string;
-
-    @ApiProperty({
-        description: 'URL a la que se redirigirá si el pago es cancelado',
-        example: 'https://tudominio.com/payment/cancel',
-        required: false
-    })
-    @IsOptional()
-    @IsUrl()
-    cancelUrl?: string;
-
-    @ApiProperty({
-        description: 'URL de retorno después de cualquier resultado del pago',
-        example: 'https://tudominio.com/payment/return',
-        required: false
-    })
-    @IsOptional()
-    @IsUrl()
+    @IsString()
     returnUrl?: string;
+
+    @ApiProperty({ required: false, example: 'user@example.com' })
+    @IsOptional()
+    @IsEmail()
+    customerEmail?: string;
+
+    @ApiProperty({ required: false, example: 'user_123_order_456' })
+    @IsOptional()
+    @IsString()
+    clientReferenceId?: string;
+
+    @ApiProperty({ required: false, example: { orderId: 'abc123' } })
+    @IsOptional()
+    metadata?: Record<string, string>;
 }
