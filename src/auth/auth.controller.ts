@@ -88,19 +88,14 @@ export class AuthController {
   @ApiResponse({ status: 401, description: 'Credenciales inválidas' })
   @Throttle({ default: { limit: 5, ttl: 60 } })
   @HttpCode(HttpStatus.OK)
-  @Post('login') // 👈 La corrección clave: POST y 'login'
+  @Post('login')
   async login(@Body() loginDto: CreateLoginDto, @Res({ passthrough: true }) res: Response) {
-    // 1. Llamamos al servicio y recibimos la respuesta completa
     const result = await this.authService.loginUser(loginDto) as LoginResult;
 
-    // 2. Verificar si se requiere verificación de cuenta
     if ('require_verification' in result && result.require_verification) {
-      // Devolvemos el objeto de verificación
-      return result;
+      return result; // retorna tal cual cuando la cuenta está inactiva
     }
 
-    // 3. Flujo normal (login exitoso):
-    // Desestructuramos para extraer tokens, user_id y message.
     const { accessToken, refreshToken, user_id, message } = result as {
       accessToken: string;
       refreshToken: string;
@@ -108,25 +103,24 @@ export class AuthController {
       message: string;
     };
 
-    // 4. Establecer cookies
+    // Cookies persistentes sin variables auxiliares:
     res.cookie('accessToken', accessToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production', // Usar 'secure: true' solo en producción
-      sameSite: 'strict',
-      maxAge: 1000 * 60 * 15, // 15 minutos
+      secure: process.env.NODE_ENV === 'production',                        // HTTPS solo en prod
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',     // cross-site en prod
+      path: '/',                                                             // importante para todas las rutas
+      maxAge: 1000 * 60 * 15, // 15 min
     });
+
     res.cookie('refreshToken', refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+      path: '/',
       maxAge: 1000 * 60 * 60 * 24 * 7, // 7 días
     });
 
-    // 5. Devolver mensaje y user_id
-    return {
-      message: message,
-      user_id: user_id,
-    };
+    return { message, user_id };
   }
 
   @ApiOperation({ summary: 'Verificar cuenta con código enviado por correo' })
