@@ -34,7 +34,6 @@ async function bootstrap() {
       'Idempotency-Key',
       'stripe-signature',
     ],
-    exposedHeaders: ['Set-Cookie'],
   });
 
   // Validaciones globales

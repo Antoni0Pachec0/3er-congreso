@@ -106,20 +106,19 @@ export class AuthController {
     // Cookies persistentes sin variables auxiliares:
     res.cookie('accessToken', accessToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',                        // HTTPS solo en prod
-      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',     // cross-site en prod
-      path: '/',                                                             // importante para todas las rutas
-      maxAge: 1000 * 60 * 15, // 15 min
+      secure: true,
+      sameSite: 'none',
+      path: '/',
+      maxAge: 1000 * 60 * 15,
     });
 
     res.cookie('refreshToken', refreshToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+      secure: true,
+      sameSite: 'none',
       path: '/',
-      maxAge: 1000 * 60 * 60 * 24 * 7, // 7 días
+      maxAge: 1000 * 60 * 60 * 24 * 7,
     });
-
     return { message, user_id };
   }
 
@@ -178,24 +177,27 @@ export class AuthController {
       throw new UnauthorizedException('Refresh token no encontrado');
     }
 
-    // Destructuring con alias para que TypeScript reconozca la variable
-    const { accessToken, refreshToken: newRefreshToken } = await this.authService.refreshToken(refreshToken);
+    const rt = req.cookies['refreshToken'];
+    if (!rt) throw new UnauthorizedException('Refresh token no encontrado');
 
-    // Configurar cookies 
+    const { accessToken, refreshToken: newRefreshToken } = await this.authService.refreshToken(rt);
+
     res.cookie('accessToken', accessToken, {
       httpOnly: true,
       secure: true,
-      sameSite: 'strict',
-      maxAge: 1000 * 60 * 15, // 15 minutos
+      sameSite: 'none',
+      path: '/',
+      maxAge: 1000 * 60 * 15,
     });
-
     res.cookie('refreshToken', newRefreshToken, {
       httpOnly: true,
       secure: true,
-      sameSite: 'strict',
-      maxAge: 1000 * 60 * 60 * 24 * 7, // 7 días
+      sameSite: 'none',
+      path: '/',
+      maxAge: 1000 * 60 * 60 * 24 * 7,
     });
 
     return { message: 'Token refrescado correctamente' };
+
   }
 }
