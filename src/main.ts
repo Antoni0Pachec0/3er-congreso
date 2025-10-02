@@ -21,8 +21,12 @@ async function bootstrap() {
   });
 
   if (process.env.NODE_ENV === 'production') {
-    // Detrás de proxy (Railway/Nginx/Cloudflare) para respetar cookies Secure
-    app.set('trust proxy', 1);
+    // ✅ forma segura para cualquier adaptador (Express/Fastify):
+    const httpAdapter = app.getHttpAdapter();
+    const instance = httpAdapter.getInstance?.();
+    if (instance?.set) {
+      instance.set('trust proxy', 1);
+    }
   }
 
   // Middlewares
