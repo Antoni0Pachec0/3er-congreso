@@ -8,7 +8,6 @@ import {
   Res,
   HttpCode,
   HttpStatus,
-  BadRequestException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
@@ -35,7 +34,20 @@ interface AuthenticatedRequest extends Request {
 @UseGuards(ThrottlerGuard)
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) { }
+  constructor(private readonly authService: AuthService) {}
+
+  // Helper local para opciones de cookie por entorno (sin crear archivo nuevo)
+  private cookieBase() {
+    const isProd = process.env.NODE_ENV === 'production';
+    return {
+      httpOnly: true,
+      path: '/',
+      secure: isProd,
+      sameSite: (isProd ? 'none' : 'lax') as 'none' | 'lax',
+      // Si en PROD usas subdominios y quieres compartir cookie:
+      // domain: isProd ? '.congresoti.com.mx' : undefined,
+    } as const;
+  }
 
   @ApiOperation({ summary: 'Registrar un nuevo usuario' })
   @ApiResponse({ status: 201, description: 'Usuario creado correctamente' })
@@ -47,24 +59,20 @@ export class AuthController {
     @Body() createUserDto: CreateUserDto,
     @Res({ passthrough: true }) res: Response,
   ) {
-    // 1. Llamar al servicio, que setea la cookie en 'res'.
-    const result = await this.authService.createUser(createUserDto, res);
-    return result;
+    // El servicio puede setear la cookie 'verify' si aplica
+    return this.authService.createUser(createUserDto, res);
   }
 
   @ApiOperation({ summary: 'Verificar contraseña secreta para registro de ponentes' })
   @ApiResponse({ status: 200, description: 'Contraseña de ponente válida' })
   @ApiResponse({ status: 401, description: 'Contraseña de ponente inválida' })
-  @Throttle({ default: { limit: 10, ttl: 60 } }) // Opcional: Recomendado para prevenir ataques de fuerza bruta
+  @Throttle({ default: { limit: 10, ttl: 60 } })
   @Post('speakers/check-secret')
   checkSpeakerSecret(@Body() body: { secret_password: string }) {
     const secret = (process.env.SPEAKER_SECRET || '').trim();
-
-    // La excepción correcta para credenciales inválidas es 401 Unauthorized
     if (!secret || (body.secret_password || '').trim() !== secret) {
       throw new UnauthorizedException('Contraseña de ponente inválida');
     }
-
     return { ok: true };
   }
 
@@ -90,10 +98,10 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @Post('login')
   async login(@Body() loginDto: CreateLoginDto, @Res({ passthrough: true }) res: Response) {
-    const result = await this.authService.loginUser(loginDto) as LoginResult;
+    const result = (await this.authService.loginUser(loginDto)) as LoginResult;
 
     if ('require_verification' in result && result.require_verification) {
-      return result; // retorna tal cual cuando la cuenta está inactiva
+      return result; // Cuenta inactiva: no setear tokens
     }
 
     const { accessToken, refreshToken, user_id, message } = result as {
@@ -103,22 +111,18 @@ export class AuthController {
       message: string;
     };
 
-    // Cookies persistentes sin variables auxiliares:
+    const base = this.cookieBase();
+
     res.cookie('accessToken', accessToken, {
-      httpOnly: true,
-      secure: true,
-      sameSite: 'none',
-      path: '/',
-      maxAge: 1000 * 60 * 15,
+      ...base,
+      maxAge: 1000 * 60 * 15, // 15 min
     });
 
     res.cookie('refreshToken', refreshToken, {
-      httpOnly: true,
-      secure: true,
-      sameSite: 'none',
-      path: '/',
-      maxAge: 1000 * 60 * 60 * 24 * 7,
+      ...base,
+      maxAge: 1000 * 60 * 60 * 24 * 7, // 7 días
     });
+
     return { message, user_id };
   }
 
@@ -159,8 +163,11 @@ export class AuthController {
     if (refreshToken) {
       await this.authService.logout(req.user.userId, refreshToken);
     }
-    res.clearCookie('accessToken');
-    res.clearCookie('refreshToken');
+
+    const base = this.cookieBase();
+    res.clearCookie('accessToken', base);
+    res.clearCookie('refreshToken', base);
+
     return { message: 'Sesión cerrada correctamente' };
   }
 
@@ -177,27 +184,20 @@ export class AuthController {
       throw new UnauthorizedException('Refresh token no encontrado');
     }
 
-    const rt = req.cookies['refreshToken'];
-    if (!rt) throw new UnauthorizedException('Refresh token no encontrado');
+    const { accessToken, refreshToken: newRefreshToken } =
+      await this.authService.refreshToken(refreshToken);
 
-    const { accessToken, refreshToken: newRefreshToken } = await this.authService.refreshToken(rt);
+    const base = this.cookieBase();
 
     res.cookie('accessToken', accessToken, {
-      httpOnly: true,
-      secure: true,
-      sameSite: 'none',
-      path: '/',
+      ...base,
       maxAge: 1000 * 60 * 15,
     });
     res.cookie('refreshToken', newRefreshToken, {
-      httpOnly: true,
-      secure: true,
-      sameSite: 'none',
-      path: '/',
+      ...base,
       maxAge: 1000 * 60 * 60 * 24 * 7,
     });
 
     return { message: 'Token refrescado correctamente' };
-
   }
 }
