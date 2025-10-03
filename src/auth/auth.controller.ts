@@ -44,8 +44,7 @@ export class AuthController {
       path: '/',
       secure: isProd,
       sameSite: (isProd ? 'none' : 'lax') as 'none' | 'lax',
-      // Si en PROD usas subdominios y quieres compartir cookie:
-      // domain: isProd ? '.congresoti.com.mx' : undefined,
+      domain: isProd ? '.congresoti.com.mx' : undefined,
     } as const;
   }
 
@@ -113,12 +112,12 @@ export class AuthController {
 
     const base = this.cookieBase();
 
-    res.cookie('accessToken', accessToken, {
+    res.cookie('access_token', accessToken, {
       ...base,
       maxAge: 1000 * 60 * 15, // 15 min
     });
 
-    res.cookie('refreshToken', refreshToken, {
+    res.cookie('refresh_token', refreshToken, {
       ...base,
       maxAge: 1000 * 60 * 60 * 24 * 7, // 7 días
     });

@@ -7,7 +7,7 @@ import { PrismaService } from '@prisma/prisma.service'; // 👈 usa el mismo ali
 
 // Extrae el accessToken desde la cookie (si existe)
 function cookieExtractor(req: Request): string | null {
-  return req?.cookies?.accessToken ?? null; // nombre de cookie coherente con tu controller
+  return req?.cookies?.['access_token'] ?? null
 }
 
 type JwtPayload = {

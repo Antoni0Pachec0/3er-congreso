@@ -1,8 +1,9 @@
 // scores.controller.ts
-import { Controller, Post, Get, Body, UseGuards, Request } from '@nestjs/common';
+import { Controller, Post, Get, Body, UseGuards, Req } from '@nestjs/common';
 import { ScoresService } from './scores.service';
 import { CreateScoreDto } from './dto/create-score.dto';
-import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
+// usa el MISMO guard del resto del proyecto
+import { JwtAuthGuard } from '@/auth/validation/guards/jwt.guard';
 
 @Controller('scores')
 export class ScoresController {
@@ -10,10 +11,10 @@ export class ScoresController {
 
   @UseGuards(JwtAuthGuard)
   @Post()
-  async create(@Request() req, @Body() dto: CreateScoreDto) {
-    // Convierte el ID del usuario a BigInt en el controlador.
-    const userId = BigInt(req.user.user_id);
-    return this.scoresService.createScore(userId, dto);
+  async create(@Req() req, @Body() dto: CreateScoreDto) {
+    // JwtStrategy -> validate() devuelve { userId, email }
+    const userIdBigint = BigInt(req.user.userId);
+    return this.scoresService.createScore(userIdBigint, dto);
   }
 
   @Get('leaderboard')
