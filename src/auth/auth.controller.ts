@@ -155,18 +155,27 @@ export class AuthController {
   @ApiOperation({ summary: 'Cerrar sesión e invalidar refresh token' })
   @ApiBearerAuth()
   @ApiResponse({ status: 200, description: 'Sesión cerrada exitosamente' })
-  @UseGuards(JwtAuthGuard)
   @Post('logout')
-  async logout(@Req() req: AuthenticatedRequest, @Res({ passthrough: true }) res: Response) {
-    const refreshToken = req.cookies['refreshToken'];
+  async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    // Usa los mismos nombres de cookie que SETEAS en login
+    const refreshToken = req.cookies?.['refresh_token'] ?? null;
+
+    // Revoca el refresh si llegó (no necesitamos userId para esto)
     if (refreshToken) {
-      await this.authService.logout(req.user.userId, refreshToken);
+      try {
+        await this.authService.logoutByRefreshToken(refreshToken);
+      } catch (e) {
+        // No rompas el logout si falló la revocación
+        console.warn('No se pudo revocar refresh token:', e);
+      }
     }
 
+    // Limpia ambas cookies SIEMPRE
     const base = this.cookieBase();
-    res.clearCookie('accessToken', base);
-    res.clearCookie('refreshToken', base);
+    res.clearCookie('access_token', base);
+    res.clearCookie('refresh_token', base);
 
+    // Idempotente: siempre 200
     return { message: 'Sesión cerrada correctamente' };
   }
 
@@ -178,7 +187,7 @@ export class AuthController {
     @Req() req: AuthenticatedRequest,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const refreshToken = req.cookies['refreshToken'];
+    const refreshToken = req.cookies['refresh_token'];
     if (!refreshToken) {
       throw new UnauthorizedException('Refresh token no encontrado');
     }
@@ -188,11 +197,11 @@ export class AuthController {
 
     const base = this.cookieBase();
 
-    res.cookie('accessToken', accessToken, {
+    res.cookie('access_token', accessToken, {
       ...base,
       maxAge: 1000 * 60 * 15,
     });
-    res.cookie('refreshToken', newRefreshToken, {
+    res.cookie('refresh_token', newRefreshToken, {
       ...base,
       maxAge: 1000 * 60 * 60 * 24 * 7,
     });

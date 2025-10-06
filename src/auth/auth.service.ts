@@ -517,13 +517,33 @@ async resetPassword(dto: ResetPasswordDto) {
       await this.prisma.verification_token.create({
         data: {
           token: refreshToken,
-          token_type: 'refreshToken',
+          token_type: 'refresh_token',
           user_id: user.user_id,
           used: false,
           expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
           attempts: 0,
         },
       });
+
+      const tokens = await this.prisma.verification_token.findMany({
+      where: {
+        user_id: user.user_id,
+        token_type: 'refresh_token',
+        used: false,
+        expires_at: { gt: new Date() }, // solo vigentes
+      },
+        orderBy: { created_at: 'desc' },
+        skip: 2, // saltar los 2 más recientes
+      });
+
+      if (tokens.length > 0) {
+        await this.prisma.verification_token.updateMany({
+          where: {
+          verification_token_id: { in: tokens.map(t => t.verification_token_id) },
+        },
+          data: { used: true, used_at: new Date() },
+        });
+      }
 
       return {
         message: 'Login exitoso',
@@ -694,7 +714,7 @@ async resetPassword(dto: ResetPasswordDto) {
   async refreshToken(refreshToken: string) {
     try {
       const tokenRecord = await this.prisma.verification_token.findFirst({
-        where: { token: refreshToken, token_type: 'refreshToken', used: false, expires_at: { gt: new Date() } },
+        where: { token: refreshToken, token_type: 'refresh_token', used: false, expires_at: { gt: new Date() } },
         include: { users: true },
       });
       if (!tokenRecord || !tokenRecord.users) {
@@ -718,7 +738,7 @@ async resetPassword(dto: ResetPasswordDto) {
       await this.prisma.verification_token.create({
         data: {
           token: newRefreshToken,
-          token_type: 'refreshToken',
+          token_type: 'refresh_token',
           user_id: tokenRecord.user_id,
           used: false,
           expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
@@ -759,16 +779,10 @@ async resetPassword(dto: ResetPasswordDto) {
     }
   }
 
-  async logout(userId: number, refreshToken: string) {
-    try {
-      await this.prisma.verification_token.updateMany({
-        where: { user_id: BigInt(userId), token: refreshToken, token_type: 'refreshToken', used: false },
-        data: { used: true, used_at: new Date() },
-      });
-      return { message: 'Sesión cerrada exitosamente' };
-    } catch (error) {
-      console.error('Error en logout:', error);
-      throw new InternalServerErrorException('Error al cerrar sesión');
-    }
+  async logoutByRefreshToken(refreshToken: string) {
+    await this.prisma.verification_token.updateMany({
+      where: { token: refreshToken, token_type: 'refresh_token', used: false },
+      data: { used: true, used_at: new Date() },
+    });
   }
 }

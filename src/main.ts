@@ -33,7 +33,7 @@ async function bootstrap() {
   app.use(cookieParser());
 
   // CORS (usa exactamente tu FRONTEND_URL validada)
-  const FRONT_ORIGINS = [envs.frontendUrl || 'http://localhost:3000'];
+  const FRONT_ORIGINS = [envs.frontendUrl || 'https://congresoti.com.mx'];
 
   app.enableCors({
     origin: FRONT_ORIGINS,
