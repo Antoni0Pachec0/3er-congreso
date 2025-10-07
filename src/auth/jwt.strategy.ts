@@ -3,51 +3,74 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { Request } from 'express';
-import { PrismaService } from '@prisma/prisma.service'; // 👈 usa el mismo alias que en el resto del proyecto
+import { PrismaService } from '@prisma/prisma.service';
 
-// Extrae el accessToken desde la cookie (si existe)
-function cookieExtractor(req: Request): string | null {
-  return req?.cookies?.['access_token'] ?? null
+// 🔥 EXTRACTOR MEJORADO - busca en cookies Y headers
+function jwtExtractor(req: Request): string | null {
+  // 1. Buscar en cookies
+  if (req?.cookies?.['access_token']) {
+    return req.cookies['access_token'];
+  }
+  
+  // 2. Buscar en header Authorization
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    return authHeader.substring(7);
+  }
+  
+  // 3. Buscar en query string (último recurso)
+  if (req.query && req.query.token) {
+    return req.query.token as string;
+  }
+  
+  return null;
 }
 
 type JwtPayload = {
   userId: number;
   email: string;
-  // puedes agregar otros claims si los firmas (p.ej. roles, type_user_id, etc.)
+  iat?: number;
+  exp?: number;
 };
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(private readonly prisma: PrismaService) {
     super({
-      // 1) primero cookie; 2) header Authorization: Bearer
-      jwtFromRequest: ExtractJwt.fromExtractors([
-        cookieExtractor,
-        ExtractJwt.fromAuthHeaderAsBearerToken(),
-      ]),
-      secretOrKey: process.env.JWT_SECRET || 'default_jwt_secret', // debe coincidir con el usado al firmar
+      jwtFromRequest: ExtractJwt.fromExtractors([jwtExtractor]),
+      secretOrKey: process.env.JWT_SECRET || 'default_jwt_secret',
       ignoreExpiration: false,
-      // algorithms: ['HS256'], // opcional (por defecto HS256 si usas jwtService.sign)
-      // passReqToCallback: false,
+      passReqToCallback: false,
     });
   }
 
-  // Lo que devolverás en req.user
   async validate(payload: JwtPayload) {
-    // (Opcional pero recomendado) comprobar que el usuario existe aún
-    const exists = await this.prisma.users.findUnique({
+    // 🔥 VERIFICACIÓN MÁS ROBUSTA
+    if (!payload.userId || !payload.email) {
+      throw new UnauthorizedException('Token inválido: faltan datos del usuario');
+    }
+
+    // Verificar que el usuario existe
+    const user = await this.prisma.users.findUnique({
       where: { user_id: BigInt(payload.userId) },
-      select: { user_id: true, email: true },
+      select: { 
+        user_id: true, 
+        email: true,
+        status: true 
+      },
     });
 
-    if (!exists) {
+    if (!user) {
       throw new UnauthorizedException('Usuario no encontrado');
     }
 
-    // Devuelve exactamente lo que consumen tus controllers/guards
+    if (user.status !== 'active') {
+      throw new UnauthorizedException('Cuenta inactiva');
+    }
+
     return {
-      userId: Number(exists.user_id),
-      email: exists.email,
+      userId: Number(user.user_id),
+      email: user.email,
     };
   }
 }

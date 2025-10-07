@@ -157,25 +157,33 @@ export class AuthController {
   @ApiResponse({ status: 200, description: 'Sesión cerrada exitosamente' })
   @Post('logout')
   async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
-    // Usa los mismos nombres de cookie que SETEAS en login
+    console.log('Logout requested, cookies:', req.cookies);
+    
     const refreshToken = req.cookies?.['refresh_token'] ?? null;
 
-    // Revoca el refresh si llegó (no necesitamos userId para esto)
     if (refreshToken) {
       try {
         await this.authService.logoutByRefreshToken(refreshToken);
+        console.log('Refresh token revoked successfully');
       } catch (e) {
-        // No rompas el logout si falló la revocación
         console.warn('No se pudo revocar refresh token:', e);
       }
     }
 
-    // Limpia ambas cookies SIEMPRE
     const base = this.cookieBase();
+    
+    // Limpiar cookies de manera más agresiva
     res.clearCookie('access_token', base);
     res.clearCookie('refresh_token', base);
+    
+    // También limpiar la cookie de verify por si acaso
+    res.clearCookie('verify', { 
+      path: '/',
+      domain: base.domain 
+    });
 
-    // Idempotente: siempre 200
+    console.log('Cookies cleared, logout completed');
+    
     return { message: 'Sesión cerrada correctamente' };
   }
 
