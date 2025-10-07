@@ -25,7 +25,7 @@ async function bootstrap() {
 
   // Configuración CORS segura (frontend debe coincidir con tu dominio o localhost)
   app.enableCors({
-    origin: [envs.frontendUrl || 'https://congresoti.com.mx'],
+    origin: [envs.frontendUrl || 'http://localhost:3000'],
     credentials: true, // Permite cookies/headers de sesión
     methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: [
