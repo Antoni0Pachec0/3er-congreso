@@ -8,7 +8,6 @@ import {
   Res,
   HttpCode,
   HttpStatus,
-  BadRequestException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
@@ -35,7 +34,19 @@ interface AuthenticatedRequest extends Request {
 @UseGuards(ThrottlerGuard)
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) { }
+  constructor(private readonly authService: AuthService) {}
+
+  // Helper local para opciones de cookie por entorno (sin crear archivo nuevo)
+  private cookieBase() {
+    const isProd = process.env.NODE_ENV === 'production';
+    return {
+      httpOnly: true,
+      path: '/',
+      secure: isProd,
+      sameSite: (isProd ? 'none' : 'lax') as 'none' | 'lax',
+      domain: isProd ? '.congresoti.com.mx' : undefined,
+    } as const;
+  }
 
   @ApiOperation({ summary: 'Registrar un nuevo usuario' })
   @ApiResponse({ status: 201, description: 'Usuario creado correctamente' })
@@ -47,24 +58,20 @@ export class AuthController {
     @Body() createUserDto: CreateUserDto,
     @Res({ passthrough: true }) res: Response,
   ) {
-    // 1. Llamar al servicio, que setea la cookie en 'res'.
-    const result = await this.authService.createUser(createUserDto, res);
-    return result;
+    // El servicio puede setear la cookie 'verify' si aplica
+    return this.authService.createUser(createUserDto, res);
   }
 
   @ApiOperation({ summary: 'Verificar contraseña secreta para registro de ponentes' })
   @ApiResponse({ status: 200, description: 'Contraseña de ponente válida' })
   @ApiResponse({ status: 401, description: 'Contraseña de ponente inválida' })
-  @Throttle({ default: { limit: 10, ttl: 60 } }) // Opcional: Recomendado para prevenir ataques de fuerza bruta
+  @Throttle({ default: { limit: 10, ttl: 60 } })
   @Post('speakers/check-secret')
   checkSpeakerSecret(@Body() body: { secret_password: string }) {
     const secret = (process.env.SPEAKER_SECRET || '').trim();
-
-    // La excepción correcta para credenciales inválidas es 401 Unauthorized
     if (!secret || (body.secret_password || '').trim() !== secret) {
       throw new UnauthorizedException('Contraseña de ponente inválida');
     }
-
     return { ok: true };
   }
 
@@ -88,19 +95,14 @@ export class AuthController {
   @ApiResponse({ status: 401, description: 'Credenciales inválidas' })
   @Throttle({ default: { limit: 5, ttl: 60 } })
   @HttpCode(HttpStatus.OK)
-  @Post('login') // 👈 La corrección clave: POST y 'login'
+  @Post('login')
   async login(@Body() loginDto: CreateLoginDto, @Res({ passthrough: true }) res: Response) {
-    // 1. Llamamos al servicio y recibimos la respuesta completa
-    const result = await this.authService.loginUser(loginDto) as LoginResult;
+    const result = (await this.authService.loginUser(loginDto)) as LoginResult;
 
-    // 2. Verificar si se requiere verificación de cuenta
     if ('require_verification' in result && result.require_verification) {
-      // Devolvemos el objeto de verificación
-      return result;
+      return result; // Cuenta inactiva: no setear tokens
     }
 
-    // 3. Flujo normal (login exitoso):
-    // Desestructuramos para extraer tokens, user_id y message.
     const { accessToken, refreshToken, user_id, message } = result as {
       accessToken: string;
       refreshToken: string;
@@ -108,25 +110,19 @@ export class AuthController {
       message: string;
     };
 
-    // 4. Establecer cookies
-    res.cookie('accessToken', accessToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production', // Usar 'secure: true' solo en producción
-      sameSite: 'strict',
-      maxAge: 1000 * 60 * 15, // 15 minutos
+    const base = this.cookieBase();
+
+    res.cookie('access_token', accessToken, {
+      ...base,
+      maxAge: 1000 * 60 * 15, // 15 min
     });
-    res.cookie('refreshToken', refreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
+
+    res.cookie('refresh_token', refreshToken, {
+      ...base,
       maxAge: 1000 * 60 * 60 * 24 * 7, // 7 días
     });
 
-    // 5. Devolver mensaje y user_id
-    return {
-      message: message,
-      user_id: user_id,
-    };
+    return { message, user_id };
   }
 
   @ApiOperation({ summary: 'Verificar cuenta con código enviado por correo' })
@@ -159,15 +155,35 @@ export class AuthController {
   @ApiOperation({ summary: 'Cerrar sesión e invalidar refresh token' })
   @ApiBearerAuth()
   @ApiResponse({ status: 200, description: 'Sesión cerrada exitosamente' })
-  @UseGuards(JwtAuthGuard)
   @Post('logout')
-  async logout(@Req() req: AuthenticatedRequest, @Res({ passthrough: true }) res: Response) {
-    const refreshToken = req.cookies['refreshToken'];
+  async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    console.log('Logout requested, cookies:', req.cookies);
+    
+    const refreshToken = req.cookies?.['refresh_token'] ?? null;
+
     if (refreshToken) {
-      await this.authService.logout(req.user.userId, refreshToken);
+      try {
+        await this.authService.logoutByRefreshToken(refreshToken);
+        console.log('Refresh token revoked successfully');
+      } catch (e) {
+        console.warn('No se pudo revocar refresh token:', e);
+      }
     }
-    res.clearCookie('accessToken');
-    res.clearCookie('refreshToken');
+
+    const base = this.cookieBase();
+    
+    // Limpiar cookies de manera más agresiva
+    res.clearCookie('access_token', base);
+    res.clearCookie('refresh_token', base);
+    
+    // También limpiar la cookie de verify por si acaso
+    res.clearCookie('verify', { 
+      path: '/',
+      domain: base.domain 
+    });
+
+    console.log('Cookies cleared, logout completed');
+    
     return { message: 'Sesión cerrada correctamente' };
   }
 
@@ -179,27 +195,23 @@ export class AuthController {
     @Req() req: AuthenticatedRequest,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const refreshToken = req.cookies['refreshToken'];
+    const refreshToken = req.cookies['refresh_token'];
     if (!refreshToken) {
       throw new UnauthorizedException('Refresh token no encontrado');
     }
 
-    // Destructuring con alias para que TypeScript reconozca la variable
-    const { accessToken, refreshToken: newRefreshToken } = await this.authService.refreshToken(refreshToken);
+    const { accessToken, refreshToken: newRefreshToken } =
+      await this.authService.refreshToken(refreshToken);
 
-    // Configurar cookies 
-    res.cookie('accessToken', accessToken, {
-      httpOnly: true,
-      secure: true,
-      sameSite: 'strict',
-      maxAge: 1000 * 60 * 15, // 15 minutos
+    const base = this.cookieBase();
+
+    res.cookie('access_token', accessToken, {
+      ...base,
+      maxAge: 1000 * 60 * 15,
     });
-
-    res.cookie('refreshToken', newRefreshToken, {
-      httpOnly: true,
-      secure: true,
-      sameSite: 'strict',
-      maxAge: 1000 * 60 * 60 * 24 * 7, // 7 días
+    res.cookie('refresh_token', newRefreshToken, {
+      ...base,
+      maxAge: 1000 * 60 * 60 * 24 * 7,
     });
 
     return { message: 'Token refrescado correctamente' };
