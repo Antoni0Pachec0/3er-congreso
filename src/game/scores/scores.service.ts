@@ -86,14 +86,14 @@ export class ScoresService {
         },
       });
 
-      // 🔥 CORRECCIÓN: Mapear correctamente para la vista
-      return leaderboard.map(score => ({
-        id: score.game_score_id.toString(),
-        value: score.score, // 🔥 Cambiar 'score' por 'value' para la vista
-        email: score.users?.email || 'Anónimo',
-        name_user: score.users?.name_user || 'Jugador',
-        user_id: score.user_id ? score.user_id.toString() : null,
-        created_at: score.created_at,
+      // ✅ CORREGIDO: Mapear correctamente y evitar conflicto de nombres
+      return leaderboard.map(item => ({
+        id: item.game_score_id.toString(),
+        value: item.score,
+        email: item.users?.email || null,
+        name_user: item.users?.name_user || null, // ← No más 'Jugador' por defecto
+        user_id: item.user_id ? item.user_id.toString() : null,
+        created_at: item.created_at,
       }));
     } catch (error) {
       throw new Error(`Error al obtener leaderboard: ${error.message}`);
