@@ -3,7 +3,7 @@ import 'dotenv/config';
 import 'tsconfig-paths/register';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '@/app.module';
-import { Logger, ValidationPipe } from '@nestjs/common';
+import { Logger, ValidationPipe, BadRequestException } from '@nestjs/common';
 import { envs } from '@/config/envs';
 import { HttpExceptionFilter } from './game/scores/http-exception.filter';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
@@ -107,16 +107,19 @@ async function bootstrap() {
   });
 
   // Validaciones globales
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      transform: true,
-      forbidNonWhitelisted: true,
-      transformOptions: {
-        enableImplicitConversion: true,
-      },
-    }),
-  );
+  app.useGlobalPipes(new ValidationPipe({
+  whitelist: true,
+  transform: true,
+  forbidNonWhitelisted: true,
+  transformOptions: { enableImplicitConversion: true },
+  exceptionFactory: (errors) => {
+    const formatted = errors.map(e => ({
+      property: e.property,
+      constraints: e.constraints,
+    }));
+    return new BadRequestException({ errors: formatted, message: 'Datos inválidos' });
+  },
+}));
 
   // Filtro global
   app.useGlobalFilters(new HttpExceptionFilter());

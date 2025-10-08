@@ -122,7 +122,13 @@ export class AuthController {
       maxAge: 1000 * 60 * 60 * 24 * 7, // 7 días
     });
 
-    return { message, user_id };
+    // 🔥 AGREGAR ESTO: Devolver tokens en la respuesta también
+    return { 
+      message, 
+      user_id,
+      access_token: accessToken, // ← NUEVO
+      refresh_token: refreshToken // ← NUEVO
+    };
   }
 
   @ApiOperation({ summary: 'Verificar cuenta con código enviado por correo' })
@@ -157,14 +163,12 @@ export class AuthController {
   @ApiResponse({ status: 200, description: 'Sesión cerrada exitosamente' })
   @Post('logout')
   async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
-    console.log('Logout requested, cookies:', req.cookies);
     
     const refreshToken = req.cookies?.['refresh_token'] ?? null;
 
     if (refreshToken) {
       try {
         await this.authService.logoutByRefreshToken(refreshToken);
-        console.log('Refresh token revoked successfully');
       } catch (e) {
         console.warn('No se pudo revocar refresh token:', e);
       }
@@ -182,8 +186,6 @@ export class AuthController {
       domain: base.domain 
     });
 
-    console.log('Cookies cleared, logout completed');
-    
     return { message: 'Sesión cerrada correctamente' };
   }
 

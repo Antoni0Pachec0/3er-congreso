@@ -9,7 +9,12 @@ export class ScoresService {
 
   async createScore(userId: bigint, dto: CreateScoreDto) {
     try {
-      const userBigIntId = userId;
+
+      if (!userId || isNaN(Number(userId))) {
+        throw new Error('User ID inválido o ausente');
+      }
+
+      const userBigIntId = BigInt(userId);
 
       // 1. Busca el mejor puntaje actual del usuario.
       const userBestScore = await this.prisma.game_score.findFirst({
