@@ -45,15 +45,21 @@ export class CreateUserDto {
 
   // Teléfono principal (obligatorio) en formato internacional E.164
   @ApiProperty({ example: '+525512345678', description: 'Teléfono del usuario en formato E.164 (+[código país][número])' })
+  @Transform(({ value }) => typeof value === 'string'
+  ? value.replace(/\s|-/g, '')  // quita espacios/guiones
+  : value)
   @IsString({ message: 'El teléfono debe ser texto' })
   @IsNotEmpty({ message: 'El teléfono es obligatorio' })
-  // E.164: + seguido de 8 a 15 dígitos, primer dígito 1-9
   @Matches(/^\+[1-9]\d{7,14}$/, { message: 'Formato de teléfono inválido. Usa E.164: ej. +525512345678' })
   phone: string;
 
   // Teléfono de emergencia OPCIONAL en E.164
   @ApiProperty({ example: '+15551234567', description: 'Teléfono de emergencia (opcional) en formato E.164', required: false })
-  @Transform(({ value }) => (typeof value === 'string' ? value.trim() || undefined : value)) // 👈 convierte '' -> undefined
+  @Transform(({ value }) => {
+    if (typeof value !== 'string') return value;
+    const v = value.replace(/\s|-/g, '').trim();
+    return v === '' ? undefined : v;      // '' -> undefined para pasar IsOptional
+  })
   @IsOptional()
   @IsString({ message: 'El teléfono de emergencia debe ser texto' })
   @Matches(/^\+[1-9]\d{7,14}$/, { message: 'Formato de teléfono de emergencia inválido (E.164)' })
