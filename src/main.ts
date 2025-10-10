@@ -30,8 +30,8 @@ async function bootstrap() {
 
   // 🔥 CORS CONFIGURACIÓN COMPLETA Y CORREGIDA
   const FRONT_ORIGINS = [
-    'http://localhost:3000',
-    'http://127.0.0.1:3000',
+    'http://localhost:3002',
+    'http://127.0.0.1:3002',
     envs.frontendUrl || 'https://congresoti.com.mx',
     'https://www.congresoti.com.mx'
   ].filter(Boolean);
@@ -43,7 +43,7 @@ async function bootstrap() {
 
   // 🔥 CONFIGURACIÓN CORS PRINCIPAL
   app.enableCors({
-    origin: [envs.frontendUrl || 'http://localhost:3000'],
+    origin: [envs.frontendUrl || 'http://localhost:3002'],
     credentials: true, // Permite cookies/headers de sesión
     methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: [
