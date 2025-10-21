@@ -30,10 +30,10 @@ async function bootstrap() {
 
   // 🔥 CORS CONFIGURACIÓN COMPLETA Y CORREGIDA
   const FRONT_ORIGINS = [
-    'http://localhost:3002',
-    'http://127.0.0.1:3002',
-    envs.frontendUrl || 'https://congresoti.com.mx',
-    'https://www.congresoti.com.mx'
+    'http://localhost:3000',
+    //'http://127.0.0.1:3000',
+    envs.frontendUrl || 'http://localhost:3000',,
+    'http://localhost:3000',
   ].filter(Boolean);
 
   const uniqueOrigins = [...new Set(FRONT_ORIGINS)];
@@ -43,7 +43,7 @@ async function bootstrap() {
 
   // 🔥 CONFIGURACIÓN CORS PRINCIPAL
   app.enableCors({
-    origin: [envs.frontendUrl || 'http://localhost:3002'],
+    origin: [envs.frontendUrl || 'http://localhost:3000'],
     credentials: true, // Permite cookies/headers de sesión
     methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: [
@@ -176,11 +176,11 @@ async function bootstrap() {
   const port = envs.port || 3001;
   await app.listen(port);
 
-  logger.log(`🚀 Servidor ejecutándose en: http://localhost:${port}`);
-  logger.log(`🌐 CORS configurado para ${uniqueOrigins.length} orígenes`);
-  logger.log(`🔐 Modo de autenticación: JWT + Cookies`);
-  logger.log(`📚 Documentación API: http://localhost:${port}/api`);
-  logger.log(`🏷️  Entorno: ${process.env.NODE_ENV || 'development'}`);
+  logger.log(` Servidor ejecutándose en: http://localhost:${port}`);
+  logger.log(`CORS configurado para ${uniqueOrigins.length} orígenes`);
+  logger.log(`Modo de autenticación: JWT + Cookies`);
+  logger.log(` Documentación API: http://localhost:${port}/api`);
+  logger.log(` Entorno: ${process.env.NODE_ENV || 'development'}`);
   
   if (process.env.NODE_ENV === 'development') {
     logger.log(`\n💡 TIPS PARA DESARROLLO:`);
