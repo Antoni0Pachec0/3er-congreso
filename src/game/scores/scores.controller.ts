@@ -54,7 +54,7 @@ export class ScoresController {
   async getMyBestScore(@Req() req) {
     try {
       // Obtener userId desde el token JWT
-      const userId = BigInt(req.user.user_id || req.user.id || req.user.sub);
+      const userId = BigInt(req.user.userId);
 
       // Llamar al servicio para obtener el mejor puntaje del usuario
       return await this.scoresService.getUserBestScore(userId);
@@ -73,7 +73,7 @@ export class ScoresController {
   async getMyScores(@Req() req) {
     try {
       // Obtener userId desde el token JWT
-      const userId = BigInt(req.user.user_id || req.user.id || req.user.sub);
+      const userId = BigInt(req.user.userId);
 
       // Llamar al servicio para obtener todos los puntajes del usuario
       return await this.scoresService.getUserScores(userId);
