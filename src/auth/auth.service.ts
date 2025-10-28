@@ -33,8 +33,20 @@ import { Response } from 'express';
 type Tx = Prisma.TransactionClient;
 
 // Tipo explícito para el resultado del login
+// Tipo explícito para el resultado del login
 export type LoginResult =
-  | { message: string; accessToken: string; refreshToken: string; user_id: number }
+  | { 
+      message: string; 
+      accessToken: string; 
+      refreshToken: string; 
+      user_id: number;
+      user: {
+        user_id: number;
+        email: string;
+        type_user_id: number | null;
+        type_user_name: string | null;
+      };
+    }
   | {
       require_verification: true;
       message: string;
@@ -469,8 +481,17 @@ async resetPassword(dto: ResetPasswordDto) {
   async loginUser(dto: CreateLoginDto): Promise<LoginResult> {
     try {
       const user = await this.prisma.users.findUnique({
-        where: { email: dto.email.toLowerCase().trim() },
-      });
+      where: { email: dto.email.toLowerCase().trim() },
+      select: {
+        user_id: true,
+        email: true,
+        password_user: true,
+        status: true,
+        name_user: true,                // 👈 OBLIGATORIO para usar user.name_user
+        type_user_id: true,
+        type_user: { select: { name_type: true } },
+      },
+    });
       if (!user) throw new UnauthorizedException('Las credenciales son incorrectas');
 
       if (user.status !== 'active') {
@@ -487,10 +508,9 @@ async resetPassword(dto: ResetPasswordDto) {
         });
         this.emailService.sendVerificationCode(user.email, newCode).catch(console.error);
 
-        // Emitir cookie/verif token de fallback (igual que en registro)
         const fallbackVerifyToken = this.issueVerifyCookie(user.user_id, user.email);
 
-        return {
+        const result: LoginResult = {
           require_verification: true,
           message: 'Tu cuenta está inactiva. Revisa tu correo para el código.',
           user: {
@@ -500,12 +520,19 @@ async resetPassword(dto: ResetPasswordDto) {
           },
           ...(fallbackVerifyToken ? { verify_token: fallbackVerifyToken } : {}),
         };
+        return result;
       }
 
       const isPasswordValid = await bcrypt.compare(dto.password, user.password_user);
       if (!isPasswordValid) throw new UnauthorizedException('Las credenciales son incorrectas');
 
-      const payload = { userId: Number(user.user_id), email: user.email };
+      const payload = {
+        userId: Number(user.user_id),
+        email: user.email,
+        roleId: Number(user.type_user_id),            // opcional, por si quieres en el JWT
+        roleName: user.type_user?.name_type || null,  // opcional, por si quieres en el JWT
+      };
+
       const accessToken = this.jwtService.sign(payload, {
         expiresIn: process.env.JWT_ACCESS_EXPIRES_IN || '1h',
       });
@@ -526,37 +553,45 @@ async resetPassword(dto: ResetPasswordDto) {
       });
 
       const tokens = await this.prisma.verification_token.findMany({
-      where: {
-        user_id: user.user_id,
-        token_type: 'refresh_token',
-        used: false,
-        expires_at: { gt: new Date() }, // solo vigentes
-      },
+        where: {
+          user_id: user.user_id,
+          token_type: 'refresh_token',
+          used: false,
+          expires_at: { gt: new Date() },
+        },
         orderBy: { created_at: 'desc' },
-        skip: 2, // saltar los 2 más recientes
+        skip: 2,
       });
 
       if (tokens.length > 0) {
         await this.prisma.verification_token.updateMany({
           where: {
-          verification_token_id: { in: tokens.map(t => t.verification_token_id) },
-        },
+            verification_token_id: { in: tokens.map(t => t.verification_token_id) },
+          },
           data: { used: true, used_at: new Date() },
         });
       }
 
-      return {
+      const result: LoginResult = {
         message: 'Login exitoso',
         accessToken,
         refreshToken,
         user_id: Number(user.user_id),
+        user: {
+          user_id: Number(user.user_id),
+          email: user.email,
+          type_user_id: user.type_user_id ? Number(user.type_user_id) : null,
+          type_user_name: user.type_user?.name_type || null,
+        },
       };
+      return result;
     } catch (error) {
       if (error instanceof UnauthorizedException) throw error;
       console.error('Error en login:', error);
       throw new InternalServerErrorException('Error al iniciar sesión');
     }
   }
+
 
   // auth.service.ts
   async verifyCode(dto: VerifyCodeDto) {

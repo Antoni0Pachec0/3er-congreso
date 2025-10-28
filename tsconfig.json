@@ -20,6 +20,7 @@
     "paths": {
       "@/*": ["src/*"],
       "@auth/*": ["src/auth/*"],
+      "@admin/*": ["src/admin/*"],
       "@gmail/*": ["src/auth/validation/gmail/*"],
       "@auth/dto/*": ["src/auth/dto/*"],
       "@user/*": ["src/user/*"],
