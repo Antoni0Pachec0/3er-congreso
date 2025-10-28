@@ -33,7 +33,6 @@ import { Response } from 'express';
 type Tx = Prisma.TransactionClient;
 
 // Tipo explícito para el resultado del login
-// Tipo explícito para el resultado del login
 export type LoginResult =
   | { 
       message: string; 
@@ -50,7 +49,11 @@ export type LoginResult =
   | {
       require_verification: true;
       message: string;
-      user: { user_id: number; email: string; name_user?: string };
+      user: { 
+        user_id: number; 
+        email: string; 
+        name_user?: string;
+      };
       verify_token?: string;
     };
 
@@ -479,23 +482,35 @@ async resetPassword(dto: ResetPasswordDto) {
 
 
   async loginUser(dto: CreateLoginDto): Promise<LoginResult> {
-    try {
-      const user = await this.prisma.users.findUnique({
-      where: { email: dto.email.toLowerCase().trim() },
-      select: {
-        user_id: true,
-        email: true,
-        password_user: true,
-        status: true,
-        name_user: true,                // 👈 OBLIGATORIO para usar user.name_user
-        type_user_id: true,
-        type_user: { select: { name_type: true } },
-      },
-    });
-      if (!user) throw new UnauthorizedException('Las credenciales son incorrectas');
+  try {
+    // Agregar timeout para la consulta a la base de datos
+    const user = await Promise.race([
+      this.prisma.users.findUnique({
+        where: { email: dto.email.toLowerCase().trim() },
+        select: {
+          user_id: true,
+          email: true,
+          password_user: true,
+          status: true,
+          name_user: true,
+          type_user_id: true,
+          type_user: { select: { name_type: true } },
+        },
+      }),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('DATABASE_TIMEOUT')), 10000)
+      )
+    ]) as any;
 
-      if (user.status !== 'active') {
-        const newCode = Math.floor(100000 + Math.random() * 900000).toString();
+    if (!user) {
+      throw new UnauthorizedException('Las credenciales son incorrectas');
+    }
+
+    // Verificar si la cuenta requiere verificación
+    if (user.status !== 'active') {
+      const newCode = Math.floor(100000 + Math.random() * 900000).toString();
+      
+      try {
         await this.prisma.verification_token.create({
           data: {
             token: newCode,
@@ -503,16 +518,21 @@ async resetPassword(dto: ResetPasswordDto) {
             user_id: user.user_id,
             used: false,
             attempts: 0,
-            expires_at: new Date(Date.now() + 10 * 60 * 1000),
+            expires_at: new Date(Date.now() + 10 * 60 * 1000), // 10 minutos
           },
         });
-        this.emailService.sendVerificationCode(user.email, newCode).catch(console.error);
+
+        // Enviar email de verificación (no bloqueante)
+        this.emailService.sendVerificationCode(user.email, newCode)
+          .catch((emailError) => {
+            console.error('Error enviando código de verificación:', emailError);
+          });
 
         const fallbackVerifyToken = this.issueVerifyCookie(user.user_id, user.email);
 
         const result: LoginResult = {
           require_verification: true,
-          message: 'Tu cuenta está inactiva. Revisa tu correo para el código.',
+          message: 'Tu cuenta está inactiva. Revisa tu correo para el código de verificación.',
           user: {
             user_id: Number(user.user_id),
             email: user.email,
@@ -521,38 +541,51 @@ async resetPassword(dto: ResetPasswordDto) {
           ...(fallbackVerifyToken ? { verify_token: fallbackVerifyToken } : {}),
         };
         return result;
+      } catch (verificationError) {
+        console.error('Error creando token de verificación:', verificationError);
+        throw new InternalServerErrorException('Error al generar código de verificación');
       }
+    }
 
-      const isPasswordValid = await bcrypt.compare(dto.password, user.password_user);
-      if (!isPasswordValid) throw new UnauthorizedException('Las credenciales son incorrectas');
+    // Verificar contraseña
+    const isPasswordValid = await bcrypt.compare(dto.password, user.password_user);
+    if (!isPasswordValid) {
+      throw new UnauthorizedException('Las credenciales son incorrectas');
+    }
 
-      const payload = {
-        userId: Number(user.user_id),
-        email: user.email,
-        roleId: Number(user.type_user_id),            // opcional, por si quieres en el JWT
-        roleName: user.type_user?.name_type || null,  // opcional, por si quieres en el JWT
-      };
+    // Crear payload para JWT
+    const payload = {
+      userId: Number(user.user_id),
+      email: user.email,
+      roleId: Number(user.type_user_id),
+      roleName: user.type_user?.name_type || null,
+    };
 
-      const accessToken = this.jwtService.sign(payload, {
-        expiresIn: process.env.JWT_ACCESS_EXPIRES_IN || '1h',
-      });
-      const refreshToken = this.jwtService.sign(
-        { ...payload, isRefreshToken: true },
-        { expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d' },
-      );
+    // Generar tokens
+    const accessToken = this.jwtService.sign(payload, {
+      expiresIn: process.env.JWT_ACCESS_EXPIRES_IN || '1h',
+    });
+    
+    const refreshToken = this.jwtService.sign(
+      { ...payload, isRefreshToken: true },
+      { expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d' },
+    );
 
+    // Guardar refresh token en la base de datos
+    try {
       await this.prisma.verification_token.create({
         data: {
           token: refreshToken,
           token_type: 'refresh_token',
           user_id: user.user_id,
           used: false,
-          expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+          expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 días
           attempts: 0,
         },
       });
 
-      const tokens = await this.prisma.verification_token.findMany({
+      // Limpiar tokens de refresh antiguos (mantener solo los 2 más recientes)
+      const oldTokens = await this.prisma.verification_token.findMany({
         where: {
           user_id: user.user_id,
           token_type: 'refresh_token',
@@ -560,37 +593,83 @@ async resetPassword(dto: ResetPasswordDto) {
           expires_at: { gt: new Date() },
         },
         orderBy: { created_at: 'desc' },
-        skip: 2,
+        skip: 2, // Mantener los primeros 2, eliminar el resto
       });
 
-      if (tokens.length > 0) {
+      if (oldTokens.length > 0) {
         await this.prisma.verification_token.updateMany({
           where: {
-            verification_token_id: { in: tokens.map(t => t.verification_token_id) },
+            verification_token_id: { in: oldTokens.map(t => t.verification_token_id) },
           },
           data: { used: true, used_at: new Date() },
         });
       }
-
-      const result: LoginResult = {
-        message: 'Login exitoso',
-        accessToken,
-        refreshToken,
-        user_id: Number(user.user_id),
-        user: {
-          user_id: Number(user.user_id),
-          email: user.email,
-          type_user_id: user.type_user_id ? Number(user.type_user_id) : null,
-          type_user_name: user.type_user?.name_type || null,
-        },
-      };
-      return result;
-    } catch (error) {
-      if (error instanceof UnauthorizedException) throw error;
-      console.error('Error en login:', error);
-      throw new InternalServerErrorException('Error al iniciar sesión');
+    } catch (tokenError) {
+      console.error('Error gestionando tokens:', tokenError);
+      // No lanzamos error aquí para no romper el login por un problema secundario
     }
+
+    // Retornar resultado exitoso
+    const result: LoginResult = {
+      message: 'Login exitoso',
+      accessToken,
+      refreshToken,
+      user_id: Number(user.user_id),
+      user: {
+        user_id: Number(user.user_id),
+        email: user.email,
+        type_user_id: user.type_user_id ? Number(user.type_user_id) : null,
+        type_user_name: user.type_user?.name_type || null,
+      },
+    };
+    
+    return result;
+
+  } catch (error) {
+    // Manejo específico de errores
+    if (error instanceof UnauthorizedException) {
+      throw error;
+    }
+
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      switch (error.code) {
+        case 'P1001':
+          throw new ServiceUnavailableException(
+            'No se puede conectar al servidor de base de datos. Intenta nuevamente en unos momentos.'
+          );
+        case 'P1017':
+          throw new ServiceUnavailableException(
+            'Conexión a la base de datos cerrada. Intenta nuevamente.'
+          );
+        default:
+          console.error('Error de Prisma en login:', error);
+          throw new InternalServerErrorException('Error en el servidor de datos');
+      }
+    }
+
+    if (error instanceof Prisma.PrismaClientInitializationError) {
+      throw new ServiceUnavailableException(
+        'Error de inicialización de la base de datos. Contacta al administrador.'
+      );
+    }
+
+    if (error instanceof Prisma.PrismaClientUnknownRequestError) {
+      console.error('Error desconocido de Prisma en login:', error);
+      throw new InternalServerErrorException('Error inesperado en el servidor');
+    }
+
+    // Manejar timeout personalizado
+    if (error.message === 'DATABASE_TIMEOUT') {
+      throw new ServiceUnavailableException(
+        'El servidor está tardando demasiado en responder. Intenta nuevamente.'
+      );
+    }
+
+    // Error genérico
+    console.error('Error inesperado en login:', error);
+    throw new InternalServerErrorException('Error al iniciar sesión');
   }
+}
 
 
   // auth.service.ts

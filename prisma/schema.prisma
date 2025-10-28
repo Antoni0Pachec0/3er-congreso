@@ -155,6 +155,7 @@ model users {
   status                                      status_user?         @default(inactive)
   status_event                                Boolean?             @default(false)
   matricula                                   String?              @db.VarChar(8)
+  is_badge_printed                            Boolean?             @default(false)
   Payment                                     Payment[]
   attendance                                  attendance[]
   game_score                                  game_score[]

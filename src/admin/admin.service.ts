@@ -1,15 +1,62 @@
+// src/admin/admin.service.ts
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '@prisma/prisma.service';
 
-type ListArgs = { q?: string; filter?: string; page: number; pageSize: number; };
+type ListArgs = { 
+  q?: string; 
+  filter?: string; 
+  grade?: string;
+  group?: string;
+  page: number; 
+  pageSize: number; 
+};
 
 @Injectable()
 export class AdminService {
   constructor(private prisma: PrismaService) {}
 
-  async listUsers({ q, filter, page, pageSize }: ListArgs) {
+  // Nuevo método para obtener opciones de filtro dinámicas
+  async getFilterOptions() {
+    const [grades, groups] = await Promise.all([
+      // Obtener grados únicos (solo 2 caracteres)
+      this.prisma.users.findMany({
+        where: {
+          grade: { not: null },
+        },
+        select: { grade: true },
+        distinct: ['grade'],
+      }),
+      // Obtener grupos únicos (solo 1 carácter)
+      this.prisma.users.findMany({
+        where: {
+          group_user: { not: null },
+        },
+        select: { group_user: true },
+        distinct: ['group_user'],
+      }),
+    ]);
+
+    // Usar type assertion para evitar errores TypeScript
+    const gradeValues = grades
+      .map(g => g.grade)
+      .filter((grade): grade is string => grade !== null && grade !== undefined)
+      .sort((a, b) => a.localeCompare(b));
+
+    const groupValues = groups
+      .map(g => g.group_user)
+      .filter((group): group is string => group !== null && group !== undefined)
+      .sort((a, b) => a.localeCompare(b));
+
+    return {
+      grades: gradeValues,
+      groups: groupValues,
+    };
+  }
+
+  async listUsers({ q, filter, grade, group, page, pageSize }: ListArgs) {
     const where: any = {};
 
+    // Filtro de búsqueda general
     if (q?.trim()) {
       const contains = q.trim();
       where.OR = [
@@ -21,6 +68,7 @@ export class AdminService {
       ];
     }
 
+    // Filtro por tipo de usuario y estado
     if (filter && filter !== 'Todos') {
       if (['Estudiante','Docente','Ponente/Tallerista','Externo','Admin'].includes(filter)) {
         where.type_user = { name_type: filter };
@@ -51,6 +99,18 @@ export class AdminService {
       }
     }
 
+    // Filtro por grado (case-insensitive, máximo 2 caracteres)
+    if (grade?.trim()) {
+      const cleanGrade = grade.trim().toUpperCase().substring(0, 2);
+      where.grade = { equals: cleanGrade, mode: 'insensitive' };
+    }
+
+    // Filtro por grupo (case-insensitive, máximo 1 carácter)
+    if (group?.trim()) {
+      const cleanGroup = group.trim().toUpperCase().substring(0, 1);
+      where.group_user = { equals: cleanGroup, mode: 'insensitive' };
+    }
+
     const [total, rows] = await this.prisma.$transaction([
       this.prisma.users.count({ where }),
       this.prisma.users.findMany({
@@ -65,8 +125,10 @@ export class AdminService {
           maternal_surname: true,
           email: true,
           matricula: true,
-          status: true,          // active/inactive/suspended/deleted
-          status_event: true,    // boolean
+          grade: true,
+          group_user: true,
+          status: true,
+          status_event: true,
           type_user: { select: { name_type: true } },
           Payment: {
             select: { paymentStatus: true, status: true, paymentIntentStatus: true, createdAt: true },
@@ -88,6 +150,8 @@ export class AdminService {
         name: [r.name_user, r.paternal_surname, r.maternal_surname].filter(Boolean).join(' '),
         email: r.email,
         code: r.matricula ?? String(r.user_id),
+        grade: r.grade,
+        group: r.group_user,
         type: r.type_user?.name_type ?? 'Externo',
         isActive: r.status === 'active',
         eventEnabled: !!r.status_event,
@@ -108,6 +172,7 @@ export class AdminService {
       throw new ForbiddenException(`No puedes cambiar el estado del evento para un usuario ${user.status}`);
     }
 
+    // SOLUCIÓN: Permitir activación manual sin verificación de pago cuando se usa force=true
     if (activate && !force) {
       const hasPaid = await this.prisma.payment.count({
         where: {
@@ -119,7 +184,12 @@ export class AdminService {
           ],
         },
       });
-      if (hasPaid === 0) throw new BadRequestException('No puedes activar al usuario: no tiene un pago válido');
+      if (hasPaid === 0) {
+        throw new BadRequestException(
+          'No puedes activar al usuario: no tiene un pago válido. ' +
+          'Usa "force: true" para activación manual.'
+        );
+      }
     }
 
     const result = await this.prisma.$transaction(async (tx) => {
@@ -132,16 +202,6 @@ export class AdminService {
         select: { user_id: true, email: true, status: true, status_event: true },
       });
 
-      // Sugerencia: tabla admin_action_log (opcional)
-      // await tx.admin_action_log.create({
-      //   data: {
-      //     actor_user_id: params.actorUserId ? BigInt(params.actorUserId) : null,
-      //     target_user_id: BigInt(userId),
-      //     action: 'SET_EVENT_STATUS',
-      //     payload: { activate, force: !!force, reason: reason ?? null },
-      //   },
-      // });
-
       return updated;
     });
 
@@ -150,6 +210,9 @@ export class AdminService {
       email: result.email,
       status: result.status,
       eventEnabled: result.status_event,
+      message: activate 
+        ? `Usuario activado ${force ? 'manualmente (sin verificación de pago)' : 'con pago verificado'}`
+        : 'Usuario desactivado',
     };
   }
 }
