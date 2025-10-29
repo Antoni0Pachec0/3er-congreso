@@ -1,178 +1,238 @@
-// src/admin/admin.service.ts
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '@prisma/prisma.service';
+import { Prisma, status_user } from '@prisma/client';
 
-type ListArgs = { 
-  q?: string; 
-  filter?: string; 
-  grade?: string;
-  group?: string;
-  page: number; 
-  pageSize: number; 
+import {
+  buildMultiTermSearch,
+  normalizeGrade,
+  normalizeGroup,
+  splitGradeGroup,
+} from '@/common/utils/normalize-academics';
+
+type ListArgs = {
+  q?: string;
+  filter?: string; // "Estudiante", "Activo", "Pagado" o pares "status:active,type:Estudiante,event:true"
+  grade?: string;  // "1", "1°", "1A", "10", etc.
+  group?: string;  // "a"/"A" (se normaliza a "A")
+  page: number;
+  pageSize: number;
 };
 
 @Injectable()
 export class AdminService {
   constructor(private prisma: PrismaService) {}
 
-  // Nuevo método para obtener opciones de filtro dinámicas
+  /** Devuelve opciones de filtros normalizadas y deduplicadas */
   async getFilterOptions() {
-    const [grades, groups] = await Promise.all([
-      // Obtener grados únicos (solo 2 caracteres)
+    const [gradesRaw, groupsRaw, types] = await Promise.all([
       this.prisma.users.findMany({
-        where: {
-          grade: { not: null },
-        },
+        where: { grade: { not: null } },
         select: { grade: true },
-        distinct: ['grade'],
       }),
-      // Obtener grupos únicos (solo 1 carácter)
       this.prisma.users.findMany({
-        where: {
-          group_user: { not: null },
-        },
+        where: { group_user: { not: null } },
         select: { group_user: true },
-        distinct: ['group_user'],
       }),
+      this.prisma.type_user.findMany({ select: { type_user_id: true, name_type: true } }),
     ]);
 
-    // Usar type assertion para evitar errores TypeScript
-    const gradeValues = grades
-      .map(g => g.grade)
-      .filter((grade): grade is string => grade !== null && grade !== undefined)
-      .sort((a, b) => a.localeCompare(b));
+    const gradeSet = new Set<string>();
+    for (const g of gradesRaw) {
+      const norm = normalizeGrade(g.grade ?? undefined);
+      if (norm) gradeSet.add(norm);
+    }
+    const grades = Array.from(gradeSet).map(Number).sort((a, b) => a - b).map(String);
 
-    const groupValues = groups
-      .map(g => g.group_user)
-      .filter((group): group is string => group !== null && group !== undefined)
-      .sort((a, b) => a.localeCompare(b));
+    const groupSet = new Set<string>();
+    for (const g of groupsRaw) {
+      const norm = normalizeGroup(g.group_user ?? undefined);
+      if (norm) groupSet.add(norm);
+    }
+    const groups = Array.from(groupSet).sort((a, b) => a.localeCompare(b, 'es'));
 
     return {
-      grades: gradeValues,
-      groups: groupValues,
+      grades,
+      groups,
+      types: types.map(t => ({ id: Number(t.type_user_id), name: t.name_type })),
+      statuses: ['active', 'inactive', 'suspended', 'deleted'],
+      eventStatuses: [true, false],
     };
   }
 
+  /** Parser opcional de filtro combinado "k:v,k2:v2" */
+  private parseFilterKV(filter?: string) {
+    if (!filter) return {};
+    const obj: Record<string, string> = {};
+    for (const part of filter.split(',').map(s => s.trim()).filter(Boolean)) {
+      const [k, v] = part.split(':').map(x => x?.trim());
+      if (k && v) obj[k.toLowerCase()] = v;
+    }
+    return obj;
+  }
+
   async listUsers({ q, filter, grade, group, page, pageSize }: ListArgs) {
-    const where: any = {};
+    // ——— Normalización grado/grupo
+    let gradeNorm: string | null = null;
+    let groupNorm: string | null = null;
 
-    // Filtro de búsqueda general
-    if (q?.trim()) {
-      const contains = q.trim();
-      where.OR = [
-        { name_user: { contains, mode: 'insensitive' } },
-        { paternal_surname: { contains, mode: 'insensitive' } },
-        { maternal_surname: { contains, mode: 'insensitive' } },
-        { email: { contains, mode: 'insensitive' } },
-        { matricula: { contains, mode: 'insensitive' } },
-      ];
+    if (grade) {
+      const split = splitGradeGroup(grade); // "1A", "2° b", "10C", etc.
+      gradeNorm = split.grade ?? null;
+      if (!group && split.group) groupNorm = split.group;
     }
+    if (group && !groupNorm) groupNorm = normalizeGroup(group);
 
-    // Filtro por tipo de usuario y estado
-    if (filter && filter !== 'Todos') {
-      if (['Estudiante','Docente','Ponente/Tallerista','Externo','Admin'].includes(filter)) {
-        where.type_user = { name_type: filter };
+    // ——— Búsqueda multi-término
+    const terms = (q ?? '').split(/\s+/).filter(Boolean);
+    const searchWhere = buildMultiTermSearch(terms);
+
+    // ——— Filtros
+    const parsed = this.parseFilterKV(filter);
+    const where: Prisma.usersWhereInput = {
+      ...(searchWhere || {}),
+      ...(gradeNorm ? { grade: { equals: gradeNorm } } : {}),
+      ...(groupNorm ? { group_user: { equals: groupNorm } } : {}),
+    };
+
+    // Compatibilidad con etiquetas “simples”
+    if (filter) {
+      // Tipos por nombre visible
+      if (['Estudiante', 'Docente', 'Ponente/Tallerista', 'Externo', 'Admin'].includes(filter)) {
+        where.type_user = { name_type: { equals: filter, mode: 'insensitive' } };
       }
-      if (['Activo','Inactivo'].includes(filter)) {
-        where.status = filter === 'Activo' ? 'active' : 'inactive';
-      }
-      if (['Pagado','No pagado'].includes(filter)) {
-        where.Payment = {
-          some: filter === 'Pagado'
-            ? {
-                OR: [
-                  { paymentStatus: { equals: 'paid', mode: 'insensitive' } },
-                  { status: { equals: 'paid', mode: 'insensitive' } },
-                  { paymentIntentStatus: { equals: 'succeeded', mode: 'insensitive' } },
-                ],
-              }
-            : {
-                none: {
-                  OR: [
-                    { paymentStatus: { equals: 'paid', mode: 'insensitive' } },
-                    { status: { equals: 'paid', mode: 'insensitive' } },
-                    { paymentIntentStatus: { equals: 'succeeded', mode: 'insensitive' } },
-                  ],
-                },
-              },
+      // Estado visible
+      if (['Activo', 'Inactivo', 'Suspendido', 'Eliminado'].includes(filter)) {
+        const map: Record<string, status_user> = {
+          'Activo': 'active',
+          'Inactivo': 'inactive',
+          'Suspendido': 'suspended',
+          'Eliminado': 'deleted',
         };
+        where.status = map[filter];
+      }
+      // Pagado / No pagado (por tabla Payment)
+      if (['Pagado', 'No pagado'].includes(filter)) {
+        const paidOR = [
+          { paymentStatus: { equals: 'paid', mode: 'insensitive' as const } },
+          { status: { equals: 'paid', mode: 'insensitive' as const } },
+          { paymentIntentStatus: { equals: 'succeeded', mode: 'insensitive' as const } },
+        ];
+        (where as any).Payment = filter === 'Pagado'
+          ? { some: { OR: paidOR } }
+          : { none: { OR: paidOR } };
       }
     }
 
-    // Filtro por grado (case-insensitive, máximo 2 caracteres)
-    if (grade?.trim()) {
-      const cleanGrade = grade.trim().toUpperCase().substring(0, 2);
-      where.grade = { equals: cleanGrade, mode: 'insensitive' };
+    // Pares clave:valor (opcionales)
+    if (parsed.status) {
+      const v = parsed.status.toLowerCase();
+      if (['active', 'inactive', 'suspended', 'deleted'].includes(v)) {
+        where.status = v as status_user;
+      }
     }
+    if (parsed.type) {
+      where.type_user = { name_type: { equals: parsed.type, mode: 'insensitive' } };
+    }
+    if (parsed.event === 'true') (where as any).status_event = true;
+    if (parsed.event === 'false') (where as any).status_event = false;
 
-    // Filtro por grupo (case-insensitive, máximo 1 carácter)
-    if (group?.trim()) {
-      const cleanGroup = group.trim().toUpperCase().substring(0, 1);
-      where.group_user = { equals: cleanGroup, mode: 'insensitive' };
-    }
+    // ——— Paginado + selección
+    const take = Math.max(1, Math.min(200, pageSize));
+    const skip = Math.max(0, (page - 1) * take);
+
+    const select: Prisma.usersSelect = {
+      user_id: true,
+      name_user: true,
+      paternal_surname: true,
+      maternal_surname: true,
+      email: true,
+      phone: true,
+      matricula: true,
+      educational_program: true,
+      provenance: true,
+      grade: true,
+      group_user: true,
+      status: true,
+      status_event: true,
+      type_user: { select: { name_type: true } },
+      Payment: {
+        select: {
+          paymentStatus: true,
+          status: true,
+          paymentIntentStatus: true,
+          createdAt: true,
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 1,
+      },
+    };
 
     const [total, rows] = await this.prisma.$transaction([
       this.prisma.users.count({ where }),
       this.prisma.users.findMany({
         where,
-        skip: (page - 1) * pageSize,
-        take: pageSize,
+        select,
         orderBy: { user_id: 'desc' },
-        select: {
-          user_id: true,
-          name_user: true,
-          paternal_surname: true,
-          maternal_surname: true,
-          email: true,
-          matricula: true,
-          grade: true,
-          group_user: true,
-          status: true,
-          status_event: true,
-          type_user: { select: { name_type: true } },
-          Payment: {
-            select: { paymentStatus: true, status: true, paymentIntentStatus: true, createdAt: true },
-            take: 1,
-            orderBy: { createdAt: 'desc' },
-          },
-        },
+        skip,
+        take,
       }),
     ]);
 
     const data = rows.map(r => {
-      const paid = !!r.Payment?.[0] && (
-        (r.Payment[0].paymentStatus?.toLowerCase?.() === 'paid') ||
-        (r.Payment[0].status?.toLowerCase?.() === 'paid') ||
-        (r.Payment[0].paymentIntentStatus?.toLowerCase?.() === 'succeeded')
+      const lastPay = r.Payment?.[0];
+      const paid = !!lastPay && (
+        lastPay.paymentStatus?.toLowerCase?.() === 'paid' ||
+        lastPay.status?.toLowerCase?.() === 'paid' ||
+        lastPay.paymentIntentStatus?.toLowerCase?.() === 'succeeded'
       );
+
       return {
         id: Number(r.user_id),
         name: [r.name_user, r.paternal_surname, r.maternal_surname].filter(Boolean).join(' '),
         email: r.email,
+        phone: r.phone,
         code: r.matricula ?? String(r.user_id),
-        grade: r.grade,
-        group: r.group_user,
+        provenance: r.provenance ?? null,
+        educational_program: r.educational_program ?? null,
+        grade: normalizeGrade(r.grade ?? null),
+        group: normalizeGroup(r.group_user ?? null),
         type: r.type_user?.name_type ?? 'Externo',
         isActive: r.status === 'active',
         eventEnabled: !!r.status_event,
-        paymentStatus: paid ? 'Pagado' : 'No pagado',
+        // la UI ahora usa status_event para “Pago”
+        paymentStatus: (r.status_event ? 'Pagado' : (paid ? 'Pagado' : 'No pagado')),
       };
     });
 
-    return { total, page, pageSize, data };
+    return { total, page, pageSize: take, data };
   }
 
-  async setUserEventActivation(params: { actorUserId?: number; userId: number; activate: boolean; force?: boolean; reason?: string; }) {
-    const { userId, activate, force, reason } = params;
+  /** Activar/Desactivar (individual) — también sincroniza status_event */
+  async setUserEventActivation(params: {
+    actorUserId?: number;
+    userId: number;
+    activate: boolean;
+    force?: boolean;
+    reason?: string;
+  }) {
+    const { userId, activate, force } = params;
 
-    const user = await this.prisma.users.findUnique({ where: { user_id: BigInt(userId) } });
+    const user = await this.prisma.users.findUnique({
+      where: { user_id: BigInt(userId) },
+    });
     if (!user) throw new NotFoundException('Usuario no encontrado');
 
     if (user.status === 'deleted' || user.status === 'suspended') {
-      throw new ForbiddenException(`No puedes cambiar el estado del evento para un usuario ${user.status}`);
+      throw new ForbiddenException(
+        `No puedes cambiar el estado del evento para un usuario ${user.status}`,
+      );
     }
 
-    // SOLUCIÓN: Permitir activación manual sin verificación de pago cuando se usa force=true
     if (activate && !force) {
       const hasPaid = await this.prisma.payment.count({
         where: {
@@ -186,33 +246,108 @@ export class AdminService {
       });
       if (hasPaid === 0) {
         throw new BadRequestException(
-          'No puedes activar al usuario: no tiene un pago válido. ' +
-          'Usa "force: true" para activación manual.'
+          'No puedes activar al usuario: no tiene un pago válido. Usa "force: true" para activación manual.',
         );
       }
     }
 
-    const result = await this.prisma.$transaction(async (tx) => {
-      const updated = await tx.users.update({
-        where: { user_id: BigInt(userId) },
-        data: {
-          status_event: activate,
-          ...(activate ? { status: 'active' } : {}),
-        },
-        select: { user_id: true, email: true, status: true, status_event: true },
-      });
-
-      return updated;
+    const updated = await this.prisma.users.update({
+      where: { user_id: BigInt(userId) },
+      data: {
+        status_event: activate,                                // ← sincroniza “Pago”
+        ...(activate ? { status: 'active' as status_user } : {}),
+      },
+      select: { user_id: true, email: true, status: true, status_event: true },
     });
 
     return {
-      id: Number(result.user_id),
-      email: result.email,
-      status: result.status,
-      eventEnabled: result.status_event,
-      message: activate 
+      id: Number(updated.user_id),
+      email: updated.email,
+      status: updated.status,
+      eventEnabled: updated.status_event,
+      status_event: updated.status_event,                      // ← por claridad para el FE
+      message: activate
         ? `Usuario activado ${force ? 'manualmente (sin verificación de pago)' : 'con pago verificado'}`
         : 'Usuario desactivado',
     };
+  }
+
+  /** Activar/Desactivar MASIVO (para nueva ruta bulk) */
+  async setUsersEventActivationBulk(params: {
+    actorUserId?: number;
+    ids: number[];
+    activate: boolean;
+    force?: boolean;
+    reason?: string;
+  }) {
+    const { ids, activate, force } = params;
+
+    if (!Array.isArray(ids) || ids.length === 0) {
+      throw new BadRequestException('Debes enviar al menos un id');
+    }
+
+    // Validación mínima de existencias / estados no permitidos
+    const records = await this.prisma.users.findMany({
+      where: { user_id: { in: ids.map(n => BigInt(n)) } },
+      select: { user_id: true, status: true },
+    });
+
+    if (records.length === 0) {
+      throw new NotFoundException('Usuarios no encontrados');
+    }
+
+    const blocked = records.filter(r => r.status === 'deleted' || r.status === 'suspended');
+    if (blocked.length > 0) {
+      // Puedes optar por omitirlos en lugar de bloquear toda la operación.
+      // Aquí los omitimos y continuamos con el resto.
+    }
+
+    // Si NO es force y estamos activando, verifica pagos (a nivel masivo).
+    if (activate && !force) {
+      const paid = await this.prisma.payment.findMany({
+        where: {
+          userId: { in: ids.map(n => BigInt(n)) },
+          OR: [
+            { paymentStatus: { equals: 'paid', mode: 'insensitive' } },
+            { status: { equals: 'paid', mode: 'insensitive' } },
+            { paymentIntentStatus: { equals: 'succeeded', mode: 'insensitive' } },
+          ],
+        },
+        select: { userId: true },
+        distinct: ['userId'],
+      });
+      const paidSet = new Set(paid.map(p => Number(p.userId)));
+      const withoutPay = ids.filter(id => !paidSet.has(id));
+      if (withoutPay.length > 0) {
+        throw new BadRequestException(
+          `No puedes activar a ${withoutPay.length} usuario(s) sin pago. Usa "force: true" para activación manual.`,
+        );
+      }
+    }
+
+    // Actualiza TODOS los usuarios válidos
+    await this.prisma.users.updateMany({
+      where: {
+        user_id: { in: ids.map(n => BigInt(n)) },
+        NOT: { status: { in: ['deleted', 'suspended'] } },
+      },
+      data: {
+        status_event: activate,
+        ...(activate ? { status: 'active' as status_user } : {}),
+      },
+    });
+
+    // Devuelve el estado resultante de cada id
+    const after = await this.prisma.users.findMany({
+      where: { user_id: { in: ids.map(n => BigInt(n)) } },
+      select: { user_id: true, status_event: true },
+    });
+
+    // Formato para el FE
+    return after.map(r => ({
+      id: Number(r.user_id),
+      eventEnabled: !!r.status_event,
+      status_event: !!r.status_event,
+    }));
   }
 }

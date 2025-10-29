@@ -22,6 +22,8 @@ import { ResendCodeDto } from '@auth/dto/resend-code.dto';
 import { ForgotPasswordDto } from '@auth/dto/forgot-password.dto';
 import { ResetPasswordDto } from '@auth/dto/reset-password.dto';
 
+import { normalizeGrade, normalizeGroup } from '@/common/utils/normalize-academics';
+
 import * as bcrypt from 'bcrypt';
 import { JwtService } from '@nestjs/jwt';
 import { EmailService } from '@/auth/validation/email/email.service';
@@ -234,6 +236,10 @@ export class AuthService {
     const provenance = (dto.provenance || '').trim();
     const provLower = provenance.toLowerCase();
 
+    // ✅ Normaliza grado/grupo desde el DTO (resuelve "1°", " a ", etc.)
+    const gradeNorm = normalizeGrade(dto.grade ?? null);
+    const groupNorm = normalizeGroup(dto.group_user ?? null);
+
     // Reglas previas
     if (isSpeaker) {
       const secret = (process.env.SPEAKER_SECRET || '').trim();
@@ -244,8 +250,7 @@ export class AuthService {
 
     // Estudiante (1) o Docente UTTECAM (2 + provenance = uttecam) => requieren matrícula y programa
     const isUttecamStudent = typeUserId === 1 && provLower === 'uttecam';
-    const isUttecamCollaborator =
-      typeUserId === 2 && provLower === 'uttecam';
+    const isUttecamCollaborator = typeUserId === 2 && provLower === 'uttecam';
 
     if (isUttecamStudent || isUttecamCollaborator) {
       if (!dto.matricula || !dto.educational_program) {
@@ -258,9 +263,7 @@ export class AuthService {
     }
 
     const hashedPassword = await bcrypt.hash(dto.password_user, 12);
-    const verificationCode = Math.floor(
-      100000 + Math.random() * 900000,
-    ).toString();
+    const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
 
     try {
       const existing = await this.prisma.users.findUnique({
@@ -275,7 +278,7 @@ export class AuthService {
         return this.handleExistingInactiveUser(existing, res);
       }
 
-      // Construir payload base del usuario
+      // 🎯 Construir payload base del usuario con valores normalizados
       const baseData: Prisma.usersCreateInput = {
         name_user: dto.name_user,
         paternal_surname: dto.paternal_surname,
@@ -300,12 +303,15 @@ export class AuthService {
         ...(typeUserId === 3 ? {} : {
           provenance: (dto.provenance || '').trim() || null,
         }),
-        ...((typeUserId === 1 || typeUserId === 2) && (dto.provenance || '').toLowerCase() === 'uttecam' ? {
-          matricula: dto.matricula?.trim() || null,
-          educational_program: dto.educational_program?.trim() || null,
-          grade: typeUserId === 1 ? dto.grade?.trim() || null : null,
-          group_user: typeUserId === 1 ? dto.group_user?.trim() || null : null,
-        } : {}),
+        ...((typeUserId === 1 || typeUserId === 2) &&
+        (dto.provenance || '').toLowerCase() === 'uttecam'
+          ? {
+              matricula: dto.matricula?.trim() || null,
+              educational_program: dto.educational_program?.trim() || null,
+              grade: typeUserId === 1 ? gradeNorm : null,
+              group_user: typeUserId === 1 ? groupNorm : null,
+            }
+          : {}),
       };
 
       // Campos por tipo
@@ -330,10 +336,10 @@ export class AuthService {
         if (provLower === 'uttecam') {
           baseData.matricula = dto.matricula?.trim() || null;
           baseData.educational_program = dto.educational_program?.trim() || null;
-          baseData.grade = typeUserId === 1 ? dto.grade?.trim() || null : null;
-          baseData.group_user = typeUserId === 1 ? dto.group_user?.trim() || null : null;
+          // ✅ alumno: guarda normalizado
+          baseData.grade = typeUserId === 1 ? gradeNorm : null;
+          baseData.group_user = typeUserId === 1 ? groupNorm : null;
         } else {
-          // "otra": no hay columnas específicas en users para universidad_procedencia
           baseData.matricula = null;
           baseData.educational_program = null;
           baseData.grade = null;
@@ -341,28 +347,25 @@ export class AuthService {
         }
       }
 
-      // 1) Crear usuario (rápido, sin email dentro)
+      // 1) Crear usuario
       const user = await this.prisma.users.create({
         data: baseData,
         select: { user_id: true, name_user: true, email: true },
       });
 
-      // 2) Enviar email de verificación (NO rompe el registro si falla)
+      // 2) Enviar verificación (no bloqueante)
       try {
         await this.emailService.sendVerificationCode(user.email, verificationCode);
       } catch (mailErr) {
         console.error('[EmailService] Error enviando verificación:', mailErr);
       }
 
-      // 3) Si es ponente, crear su bundle (transacción corta y atómica)
+      // 3) Ponente: crear bundle
       if (typeUserId === 4) {
         try {
           await this.createSpeakerBundleTx(user.user_id, dto);
         } catch (e) {
           console.error('[AuthService] Error creando bundle ponente:', e);
-          // Si quieres revertir el usuario creado cuando falle el bundle,
-          // puedes descomentar lo siguiente:
-          // await this.prisma.users.delete({ where: { user_id: user.user_id } });
           throw new InternalServerErrorException(
             'No se pudo completar el registro de ponente. Intenta de nuevo.',
           );
@@ -370,11 +373,7 @@ export class AuthService {
       }
 
       // 4) Cookie de verificación (opcional)
-      const fallbackVerifyToken = this.issueVerifyCookie(
-        user.user_id,
-        user.email,
-        res,
-      );
+      const fallbackVerifyToken = this.issueVerifyCookie(user.user_id, user.email, res);
 
       return {
         message: 'Usuario creado. Revisa tu correo para el código.',

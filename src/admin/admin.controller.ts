@@ -1,85 +1,92 @@
-// src/admin/admin.controller.ts
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
-  Param,
   Patch,
-  Query,
-  Req,
-  UseGuards,
-  DefaultValuePipe,
+  Param,
   ParseIntPipe,
+  Query,
+  UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags, ApiQuery } from '@nestjs/swagger';
-import { JwtAuthGuard } from '@/auth/validation/guards/jwt.guard';
-import { Roles } from '@/common/decorators/roles.decorator';
-import { RolesGuard } from '@/common/guards/roles.guard';
 import { AdminService } from './admin.service';
-import { UpdateUserActivationDto } from './dto/update-user-activation.dto';
+import { JwtAuthGuard } from '@/auth/validation/guards/jwt.guard';
 
-interface AuthReq {
-  user?: { userId: number; email: string };
+class ListUsersQueryDto {
+  q?: string;
+  filter?: string;
+  grade?: string;
+  group?: string;
+  page!: number;
+  pageSize!: number;
 }
 
-@ApiTags('Admin')
-@ApiBearerAuth()
-@Controller('admin')
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles('Admin')
+class ToggleActivationDto {
+  activate!: boolean;
+  // opcional: alinear tipos con el service
+  reason?: string;        // <- antes: string | null
+  force?: boolean;
+}
+
+class BulkActivationDto {
+  ids!: number[];
+  activate!: boolean;
+  force?: boolean;
+}
+
+@Controller('admin/users')
+@UseGuards(JwtAuthGuard)
 export class AdminController {
   constructor(private readonly adminService: AdminService) {}
 
-  @ApiOperation({ summary: 'Obtener opciones de filtro dinámicas' })
-  @ApiResponse({ status: 200, description: 'OK' })
-  @Get('users/filter-options') // 👈 NUEVO ENDPOINT
+  @Get('filter-options')
   async getFilterOptions() {
     return this.adminService.getFilterOptions();
   }
 
-  @ApiOperation({ summary: 'Listar usuarios (paginado + filtros)' })
-  @ApiResponse({ status: 200, description: 'OK' })
-  @ApiQuery({ name: 'q', required: false, description: 'Búsqueda general' })
-  @ApiQuery({ name: 'filter', required: false, description: 'Filtro por tipo/estado/pago' })
-  @ApiQuery({ name: 'grade', required: false, description: 'Filtro por grado (ej: 1A, 2B)' })
-  @ApiQuery({ name: 'group', required: false, description: 'Filtro por grupo (ej: A, B, C)' })
-  @ApiQuery({ name: 'page', required: false, description: 'Página' })
-  @ApiQuery({ name: 'pageSize', required: false, description: 'Tamaño de página' })
-  @Get('users')
-  async listUsers(
-    @Query('q') q?: string,
-    @Query('filter') filter?: string,
-    @Query('grade') grade?: string,
-    @Query('group') group?: string,
-    @Query('page', new DefaultValuePipe(1)) page: string | number = 1,
-    @Query('pageSize', new DefaultValuePipe(20)) pageSize: string | number = 20,
-  ) {
-    const p = Number.isFinite(+page) && +page > 0 ? +page : 1;
-    const ps = Number.isFinite(+pageSize) && +pageSize > 0 ? +pageSize : 20;
-    return this.adminService.listUsers({ 
-      q, 
-      filter, 
-      grade, 
-      group, 
-      page: p, 
-      pageSize: ps 
+  @Get()
+  async listUsers(@Query() qdto: ListUsersQueryDto) {
+    const page = Number(qdto.page ?? 1);
+    const pageSize = Number(qdto.pageSize ?? 20);
+    if (!Number.isFinite(page) || page < 1) throw new BadRequestException('page inválida');
+    if (!Number.isFinite(pageSize) || pageSize < 1) throw new BadRequestException('pageSize inválido');
+
+    return this.adminService.listUsers({
+      q: qdto.q,
+      filter: qdto.filter,
+      grade: qdto.grade,
+      group: qdto.group,
+      page,
+      pageSize,
     });
   }
 
-  @ApiOperation({ summary: 'Activar/Desactivar funciones del evento para un usuario' })
-  @ApiResponse({ status: 200, description: 'OK' })
-  @Patch('users/:id/activation')
-  async activation(
+  @Patch(':id/activation')
+  async setActivation(
     @Param('id', ParseIntPipe) id: number,
-    @Body() dto: UpdateUserActivationDto,
-    @Req() req: AuthReq,
+    @Body() body: ToggleActivationDto,
   ) {
+    const activate = !!body.activate;
     return this.adminService.setUserEventActivation({
-      actorUserId: req.user?.userId,
       userId: id,
-      activate: dto.activate,
-      force: dto.force,
-      reason: dto.reason,
+      activate,
+      force: body.force ?? true,
+      // ⬇️ normaliza a undefined para que cumpla reason?: string
+      reason: body.reason ?? undefined,
+    });
+  }
+
+  @Patch('activation-bulk')
+  async bulkActivation(@Body() body: BulkActivationDto) {
+    const ids = Array.isArray(body.ids) ? body.ids : [];
+    if (ids.length === 0) throw new BadRequestException('Debes enviar al menos un ID');
+
+    return this.adminService.setUsersEventActivationBulk({
+      ids,
+      activate: !!body.activate,
+      force: body.force ?? true,
+      // ⬇️ no envíes null; omítelo o envía undefined
+      // reason: undefined,
     });
   }
 }
