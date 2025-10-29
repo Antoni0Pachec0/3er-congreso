@@ -171,7 +171,7 @@ model users {
 
 model verification_token {
   verification_token_id BigInt    @id @default(autoincrement())
-  token                 String?   @db.VarChar(255)
+  token                 String?
   token_type            String?   @db.VarChar(100)
   created_at            DateTime? @default(now()) @db.Timestamp(6)
   expires_at            DateTime? @default(dbgenerated("(now() + '00:10:00'::interval)")) @db.Timestamp(6)

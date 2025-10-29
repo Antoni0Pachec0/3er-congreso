@@ -8,31 +8,10 @@ import {
   ParseIntPipe,
   Query,
   UseGuards,
+  DefaultValuePipe,
 } from '@nestjs/common';
 import { AdminService } from './admin.service';
 import { JwtAuthGuard } from '@/auth/validation/guards/jwt.guard';
-
-class ListUsersQueryDto {
-  q?: string;
-  filter?: string;
-  grade?: string;
-  group?: string;
-  page!: number;
-  pageSize!: number;
-}
-
-class ToggleActivationDto {
-  activate!: boolean;
-  // opcional: alinear tipos con el service
-  reason?: string;        // <- antes: string | null
-  force?: boolean;
-}
-
-class BulkActivationDto {
-  ids!: number[];
-  activate!: boolean;
-  force?: boolean;
-}
 
 @Controller('admin/users')
 @UseGuards(JwtAuthGuard)
@@ -45,17 +24,25 @@ export class AdminController {
   }
 
   @Get()
-  async listUsers(@Query() qdto: ListUsersQueryDto) {
-    const page = Number(qdto.page ?? 1);
-    const pageSize = Number(qdto.pageSize ?? 20);
-    if (!Number.isFinite(page) || page < 1) throw new BadRequestException('page inválida');
-    if (!Number.isFinite(pageSize) || pageSize < 1) throw new BadRequestException('pageSize inválido');
+  async listUsers(
+    @Query('q') q?: string,
+    @Query('filter') filter?: string,
+    @Query('grade') grade?: string,
+    @Query('group') group?: string,
+    @Query('page', new DefaultValuePipe(1)) page: number = 1,
+    @Query('pageSize', new DefaultValuePipe(20)) pageSize: number = 20,
+  ) {
+    // Validación básica
+    if (page < 1) throw new BadRequestException('page debe ser mayor a 0');
+    if (pageSize < 1 || pageSize > 200) {
+      throw new BadRequestException('pageSize debe estar entre 1 y 200');
+    }
 
     return this.adminService.listUsers({
-      q: qdto.q,
-      filter: qdto.filter,
-      grade: qdto.grade,
-      group: qdto.group,
+      q,
+      filter,
+      grade,
+      group,
       page,
       pageSize,
     });
@@ -64,29 +51,38 @@ export class AdminController {
   @Patch(':id/activation')
   async setActivation(
     @Param('id', ParseIntPipe) id: number,
-    @Body() body: ToggleActivationDto,
+    @Body() body: { 
+      activate: boolean; 
+      force?: boolean; 
+      reason?: string;
+      status_event?: boolean; // 👈 NUEVO: campo explícito para estado de pago
+    },
   ) {
-    const activate = !!body.activate;
     return this.adminService.setUserEventActivation({
       userId: id,
-      activate,
-      force: body.force ?? true,
-      // ⬇️ normaliza a undefined para que cumpla reason?: string
-      reason: body.reason ?? undefined,
+      activate: body.activate,
+      force: body.force ?? false,
+      reason: body.reason,
+      status_event: body.status_event ?? body.activate, // 👈 Usar el valor enviado o activate como fallback
     });
   }
 
   @Patch('activation-bulk')
-  async bulkActivation(@Body() body: BulkActivationDto) {
-    const ids = Array.isArray(body.ids) ? body.ids : [];
-    if (ids.length === 0) throw new BadRequestException('Debes enviar al menos un ID');
+  async bulkActivation(@Body() body: { 
+    ids: number[]; 
+    activate: boolean; 
+    force?: boolean;
+    status_event?: boolean; // 👈 NUEVO: campo explícito para estado de pago
+  }) {
+    if (!body.ids || !Array.isArray(body.ids) || body.ids.length === 0) {
+      throw new BadRequestException('Debes enviar al menos un ID');
+    }
 
     return this.adminService.setUsersEventActivationBulk({
-      ids,
-      activate: !!body.activate,
-      force: body.force ?? true,
-      // ⬇️ no envíes null; omítelo o envía undefined
-      // reason: undefined,
+      ids: body.ids,
+      activate: body.activate,
+      force: body.force ?? false,
+      status_event: body.status_event ?? body.activate, // 👈 Usar el valor enviado
     });
   }
 }
