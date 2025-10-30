@@ -1,6 +1,9 @@
 // src/workshop/dto/workshop-response.dto.ts
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsNumber, IsOptional, IsDate, IsEnum, IsBoolean } from 'class-validator';
+import {
+  IsString, IsNumber, IsOptional, IsDate, IsEnum,
+  IsBoolean, IsArray, IsIn
+} from 'class-validator';
 import { status_enum } from '@prisma/client';
 
 export class WorkshopResponseDto {
@@ -8,96 +11,114 @@ export class WorkshopResponseDto {
   @IsNumber()
   workshop_id: number;
 
-  @ApiProperty({ example: 'Taller de Programación Avanzada', description: 'Nombre del taller' })
+  @ApiProperty({ example: 'Taller de Programación Avanzada' })
   @IsString()
   @IsOptional()
   name_workshop?: string;
 
-  @ApiProperty({ example: 'Aprende programación avanzada con NestJS y Prisma', description: 'Descripción del taller' })
+  @ApiProperty({ example: 'Descripción del taller' })
   @IsString()
   @IsOptional()
   descript?: string;
 
-  @ApiProperty({ example: 30, description: 'Cupo máximo del taller' })
+  @ApiProperty({ example: 20 })
   @IsNumber()
   @IsOptional()
   spots_max?: number;
 
-  @ApiProperty({ example: 15, description: 'Cupos ocupados del taller' })
+  @ApiProperty({ example: 5 })
   @IsNumber()
   @IsOptional()
   spots_occupied?: number;
 
-  @ApiProperty({ example: 'Edificio A', description: 'Edificio donde se imparte el taller' })
+  @ApiProperty({ example: 15, description: 'Cupos disponibles' })
+  @IsNumber()
+  @IsOptional()
+  available_spots?: number;
+
+  @ApiProperty({ example: 'Edificio K' })
   @IsString()
   @IsOptional()
   building?: string;
 
-  @ApiProperty({ example: 'Aula 101', description: 'Aula donde se imparte el taller' })
+  @ApiProperty({ example: 'Laboratorio K1' })
   @IsString()
   @IsOptional()
   classroom?: string;
 
-  @ApiProperty({ example: 'active', description: 'Estado del taller', enum: status_enum })
+  @ApiProperty({ example: 'active', enum: status_enum })
   @IsEnum(status_enum)
   @IsOptional()
   status?: status_enum;
 
-  @ApiProperty({ example: 1, description: 'ID del instructor del taller' })
+  @ApiProperty({ example: 123 })
   @IsNumber()
   @IsOptional()
   instructor_user_id?: number;
 
-  @ApiProperty({ example: '2024-01-01T00:00:00.000Z', description: 'Fecha de creación' })
+  @ApiProperty({ example: '2024-01-01T00:00:00.000Z' })
   @IsDate()
   @IsOptional()
   created_at?: Date;
 
-  @ApiProperty({ example: '2024-01-01T00:00:00.000Z', description: 'Fecha de actualización' })
+  @ApiProperty({ example: '2024-01-01T00:00:00.000Z' })
   @IsDate()
   @IsOptional()
   updated_at?: Date;
 
-  @ApiProperty({ example: 'Juan Pérez', description: 'Nombre del instructor' })
+  @ApiProperty({ example: 'Juan Pérez' })
   @IsString()
   @IsOptional()
   instructor_name?: string;
 
-  @ApiProperty({ example: false, description: 'Si el usuario está inscrito en este taller' })
+  // NUEVOS CAMPOS
+  @ApiProperty({ example: 'Intermedio', enum: ['Principiante','Intermedio','Avanzado'] })
+  @IsString()
+  @IsIn(['Principiante','Intermedio','Avanzado'])
+  @IsOptional()
+  level?: string;
+
+  @ApiProperty({ example: 'Ciberseguridad' })
+  @IsString()
+  @IsOptional()
+  category?: string;
+
+  @ApiProperty({ example: ['Docker','RabbitMQ','Selenium'] })
+  @IsArray()
+  @IsOptional()
+  @IsString({ each: true })
+  tools?: string[];
+
+  // Estado del usuario
+  @ApiProperty({ example: false })
   @IsBoolean()
   @IsOptional()
   is_user_enrolled?: boolean;
 
-  @ApiProperty({ example: false, description: 'Si el usuario puede inscribirse' })
+  @ApiProperty({ example: false })
   @IsBoolean()
   @IsOptional()
   can_enroll?: boolean;
 
-  @ApiProperty({ 
-    example: 'available', 
-    description: 'Estado de inscripción', 
-    enum: ['not_authenticated', 'needs_payment', 'can_enroll', 'already_enrolled'] 
+  @ApiProperty({
+    example: 'can_enroll',
+    enum: ['not_authenticated','needs_payment','can_enroll','already_enrolled','no_spots']
   })
   @IsString()
   @IsOptional()
   enrollment_status?: string;
 
-  @ApiProperty({ example: 5, description: 'Cupos disponibles' })
-  @IsNumber()
-  @IsOptional()
-  available_spots?: number;
-
-  @ApiProperty({ example: 'Inscribirse', description: 'Texto del botón según el estado' })
+  @ApiProperty({ example: 'Inscribirse' })
   @IsString()
   @IsOptional()
   button_text?: string;
 
-  @ApiProperty({ example: false, description: 'Si el botón está deshabilitado' })
+  @ApiProperty({ example: false })
   @IsBoolean()
   @IsOptional()
   button_disabled?: boolean;
 
-  @ApiProperty({ example: 'default', description: 'Tipo de botón', enum: ['default', 'warning', 'success', 'danger'] })
+  @ApiProperty({ example: 'default', enum: ['default','warning','success','danger'] })
   @IsString()
   @IsOptional()
   button_type?: string;

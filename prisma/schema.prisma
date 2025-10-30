@@ -194,6 +194,10 @@ model workshop {
   updated_at                               DateTime?    @default(now()) @db.Timestamp(6)
   status                                   status_enum?
   instructor_user_id                       BigInt?
+  instructor_name                          String?      @db.VarChar(255)
+  level                                    String?      @db.VarChar(32)
+  tools                                    String[]
+  category                                 String?      @db.VarChar(100)
   qr_code                                  qr_code[]
   schedule                                 schedule[]
   users_users_workshop_idToworkshop        users[]      @relation("users_workshop_idToworkshop")
