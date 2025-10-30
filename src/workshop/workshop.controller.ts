@@ -54,7 +54,6 @@ export class WorkshopController {
   @Get()
   @HttpCode(HttpStatus.OK)
   async getAllWorkshops(@Req() req: AuthenticatedRequest): Promise<WorkshopResponseDto[]> {
-    console.log(`👤 [WorkshopController] Usuario autenticado solicitando talleres: ${req.user.userId}`);
     return this.workshopService.getAllWorkshops(req.user.userId);
   }
 
@@ -70,10 +69,8 @@ export class WorkshopController {
   @Get('public')
   @HttpCode(HttpStatus.OK)
   async getPublicWorkshops(): Promise<WorkshopResponseDto[]> {
-    console.log('🔍 [WorkshopController] Usuario no autenticado solicitando talleres públicos');
     try {
       const workshops = await this.workshopService.getAllWorkshops();
-      console.log(`✅ [WorkshopController] Retornando ${workshops.length} talleres públicos`);
       return workshops;
     } catch (error) {
       console.error('❌ [WorkshopController] Error en endpoint público:', error);
@@ -107,7 +104,6 @@ export class WorkshopController {
     @Param('id', ParseIntPipe) id: number,
     @Req() req: AuthenticatedRequest,
   ): Promise<WorkshopResponseDto> {
-    console.log(`👤 [WorkshopController] Usuario autenticado solicitando taller ${id}: ${req.user.userId}`);
     return this.workshopService.getWorkshopById(id, req.user.userId);
   }
 
@@ -134,7 +130,6 @@ export class WorkshopController {
   async getPublicWorkshopById(
     @Param('id', ParseIntPipe) id: number,
   ): Promise<WorkshopResponseDto> {
-    console.log(`🔍 [WorkshopController] Usuario no autenticado solicitando taller público ${id}`);
     return this.workshopService.getWorkshopById(id);
   }
 
@@ -152,7 +147,6 @@ export class WorkshopController {
   @Get('available/list')
   @HttpCode(HttpStatus.OK)
   async getAvailableWorkshops(@Req() req: AuthenticatedRequest): Promise<WorkshopResponseDto[]> {
-    console.log(`👤 [WorkshopController] Usuario autenticado solicitando talleres disponibles: ${req.user.userId}`);
     return this.workshopService.getAvailableWorkshops(req.user.userId);
   }
 
@@ -168,7 +162,6 @@ export class WorkshopController {
   @Get('available/public')
   @HttpCode(HttpStatus.OK)
   async getPublicAvailableWorkshops(): Promise<WorkshopResponseDto[]> {
-    console.log('🔍 [WorkshopController] Usuario no autenticado solicitando talleres disponibles públicos');
     return this.workshopService.getAvailableWorkshops();
   }
 }

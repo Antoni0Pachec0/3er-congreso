@@ -53,16 +53,16 @@ export class ScheduleController {
     return this.scheduleService.remove(+id);
   }
 
-  @Post('workshops')
+ /*  @Post('workshops')
   @ApiOperation({ summary: 'Crear un nuevo taller' })
   @ApiResponse({ status: HttpStatus.CREATED, description: 'Taller creado exitosamente' })
   @ApiBody({ type: CreateWorkshopDto })
   @HttpCode(HttpStatus.CREATED)
   createWorkshop(@Body() createWorkshopDto: CreateWorkshopDto) {
     return this.scheduleService.createWorkshop(createWorkshopDto);
-  }
+  } */
 
-  @Get('workshops')
+  /* @Get('workshops')
   @ApiOperation({ summary: 'Listar todos los talleres' })
   findAllWorkshops() {
     return this.scheduleService.findAllWorkshops();
@@ -106,5 +106,5 @@ export class ScheduleController {
   @ApiParam({ name: 'speakerName', type: String, description: 'Nombre del ponente' })
   findWorkshopsBySpeaker(@Param('speakerName') speakerName: string) {
     return this.scheduleService.findWorkshopsBySpeaker(speakerName);
-  }
+  } */
 }

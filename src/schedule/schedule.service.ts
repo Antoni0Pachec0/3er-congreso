@@ -27,7 +27,7 @@ export class ScheduleService {
     return `This action removes a #${id} schedule`;
   }
 
-  createWorkshop(createWorkshopDto: CreateWorkshopDto) {
+  /* createWorkshop(createWorkshopDto: CreateWorkshopDto) {
     return 'This action adds a new workshop';
   }
 
@@ -73,5 +73,5 @@ export class ScheduleService {
 
   getWorkshopsByDateRange(startDate: Date, endDate: Date) {
     return `This action returns workshops by date range`;
-  }
+  } */
 }

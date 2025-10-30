@@ -89,7 +89,7 @@ export class WorkshopService {
     }
 
     // Estado 3: Usuario autenticado con pago y hay cupos
-    if (availableSpots > 0) {
+    if (availableSpots > 0 || availableSpots === Number.MAX_SAFE_INTEGER) {
       return {
         enrollment_status: 'can_enroll',
         can_enroll: true,
@@ -98,8 +98,6 @@ export class WorkshopService {
         button_type: 'default'
       };
     }
-
-    // Usuario con pago pero sin cupos
     return {
       enrollment_status: 'no_spots',
       can_enroll: false,
@@ -114,7 +112,6 @@ export class WorkshopService {
    */
   async getAllWorkshops(userId?: number): Promise<WorkshopResponseDto[]> {
     try {
-      console.log(`🔍 [WorkshopService] Obteniendo talleres para usuario: ${userId || 'No autenticado'}`);
 
       const workshops = await this.prisma.workshop.findMany({
         where: {
@@ -143,7 +140,6 @@ export class WorkshopService {
         },
       });
 
-      console.log(`📊 [WorkshopService] Encontrados ${workshops.length} talleres activos`);
 
       // Obtener información del usuario si está autenticado
       let userInfo: UserInfo | null = null;
@@ -161,8 +157,7 @@ export class WorkshopService {
 
         // Verificar si el usuario tiene pago aprobado
         if (userInfo) {
-          hasPayment = await this.userHasApprovedPayment(BigInt(userId));
-          console.log(`💰 [WorkshopService] Usuario ${userId} tiene pago: ${hasPayment}`);
+          hasPayment = Boolean(userInfo?.status_event) || await this.userHasApprovedPayment(BigInt(userId));
         }
       }
 
@@ -176,7 +171,9 @@ export class WorkshopService {
         
         const spotsMax = workshop.spots_max || 0;
         const spotsOccupied = workshop.spots_occupied || 0;
-        const availableSpots = spotsMax > 0 ? spotsMax - spotsOccupied : 0;
+        const availableSpots = (spotsMax && spotsMax > 0)
+          ? Math.max(spotsMax - spotsOccupied, 0)
+          : Number.MAX_SAFE_INTEGER;
 
         // Determinar el estado de inscripción
         const enrollmentInfo = this.determineEnrollmentStatus(
@@ -213,7 +210,6 @@ export class WorkshopService {
         };
       });
 
-      console.log(`✅ [WorkshopService] Transformados ${transformedWorkshops.length} talleres`);
       return transformedWorkshops;
 
     } catch (error) {
@@ -239,7 +235,6 @@ export class WorkshopService {
    */
   async getWorkshopById(id: number, userId?: number): Promise<WorkshopResponseDto> {
     try {
-      console.log(`🔍 [WorkshopService] Obteniendo taller ${id} para usuario: ${userId || 'No autenticado'}`);
 
       const workshop = await this.prisma.workshop.findFirst({
         where: {
@@ -296,7 +291,7 @@ export class WorkshopService {
 
         // Verificar si el usuario tiene pago aprobado
         if (userInfo) {
-          hasPayment = await this.userHasApprovedPayment(BigInt(userId));
+          hasPayment = Boolean(userInfo?.status_event) || await this.userHasApprovedPayment(BigInt(userId));
         }
       }
 
@@ -365,7 +360,6 @@ export class WorkshopService {
    */
   async getAvailableWorkshops(userId?: number): Promise<WorkshopResponseDto[]> {
     try {
-      console.log(`🔍 [WorkshopService] Obteniendo talleres disponibles para usuario: ${userId || 'No autenticado'}`);
 
       const workshops = await this.prisma.workshop.findMany({
         where: {
@@ -407,7 +401,6 @@ export class WorkshopService {
         },
       });
 
-      console.log(`📊 [WorkshopService] Encontrados ${workshops.length} talleres disponibles`);
 
       // Obtener información del usuario si está autenticado
       let userInfo: UserInfo | null = null;
@@ -425,7 +418,7 @@ export class WorkshopService {
 
         // Verificar si el usuario tiene pago aprobado
         if (userInfo) {
-          hasPayment = await this.userHasApprovedPayment(BigInt(userId));
+          hasPayment = Boolean(userInfo?.status_event) || await this.userHasApprovedPayment(BigInt(userId));
         }
       }
 
