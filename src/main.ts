@@ -16,6 +16,13 @@ async function bootstrap() {
     cors: false, // Configuramos CORS manualmente
   });
 
+  app.use('/payment-stripe/webhook', bodyParser.raw({ type: 'application/json' }));
+    // Body parsers
+  app.use(bodyParser.json({ limit: '1mb' }));
+  app.use(bodyParser.urlencoded({ extended: true, limit: '1mb' }));
+
+
+
   // Configuración de proxy para producción
   if (process.env.NODE_ENV === 'production') {
     const httpAdapter = app.getHttpAdapter();
@@ -32,7 +39,7 @@ async function bootstrap() {
   const FRONT_ORIGINS = [
     'http://localhost:3000',
     //'http://127.0.0.1:3000',
-    envs.frontendUrl || 'http://localhost:3000',,
+    envs.frontendUrl || 'http://localhost:3000',
     'http://localhost:3000',
   ].filter(Boolean);
 
@@ -167,10 +174,6 @@ async function bootstrap() {
     customSiteTitle: 'API - 3er Congreso TI',
   });
 
-  // Body parsers
-  app.use('/payment-stripe/webhook', bodyParser.raw({ type: '*/*' }));
-  app.use(bodyParser.json({ limit: '10mb' }));
-  app.use(bodyParser.urlencoded({ extended: true, limit: '10mb' }));
 
   // Iniciar servidor
   const port = envs.port || 3001;

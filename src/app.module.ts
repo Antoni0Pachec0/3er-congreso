@@ -24,9 +24,6 @@ import { APP_GUARD } from '@nestjs/core';
     ScheduleModule, 
     PaymentStripeModule,
     ScoresModule,
-    UserModule,
-    ScheduleModule,
-    PaymentStripeModule,
   ],
   controllers: [AppController],
   providers: [

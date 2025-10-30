@@ -27,9 +27,23 @@ export class VerifyPaymentResponseDto {
     })
     amount: number;
 
-    @ApiProperty({example: 'mxn' })
+    @ApiProperty({ example: 'mxn' })
     currency: string;
 
     @ApiProperty({ example: 'cs_test_123' })
     sessionId: string;
+
+    @ApiProperty({
+        description: 'ID del usuario asociado al pago',
+        example: '123',
+        nullable: true
+    })
+    userId?: string;
+
+    @ApiProperty({
+        description: 'ID de referencia del cliente',
+        example: '123',
+        nullable: true
+    })
+    clientReferenceId?: string;
 }

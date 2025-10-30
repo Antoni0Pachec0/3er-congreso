@@ -1,3 +1,4 @@
+// src/payment-stripe/service/payment-stripe.service.ts
 import {
   BadRequestException,
   Injectable,
@@ -48,6 +49,8 @@ export class PaymentStripeService {
     };
   }
 
+
+
   private async savePendingSession(session: Stripe.Checkout.Session, userId?: bigint) {
     const base = this.mapSessionToBase(session);
 
@@ -79,9 +82,18 @@ export class PaymentStripeService {
   }
 
   async markPaidFromSession(session: Stripe.Checkout.Session) {
+  console.log('[markPaid] 🎯 Procesando sesión:', session.id);
+  console.log('[markPaid] 👤 ClientReferenceId:', session.client_reference_id);
+  console.log('[markPaid] 💳 Payment Status:', session.payment_status);
+  console.log('[markPaid] 📧 Customer Email:', session.customer_email);
+
   // Obtener el PaymentIntent y el Charge de la sesión
   const pi = session.payment_intent as Stripe.PaymentIntent | null;
   const latestCharge = (pi?.latest_charge as Stripe.Charge) || null;
+
+  const userId = session.client_reference_id ? BigInt(session.client_reference_id) : undefined;// recupera BigInt del metadata.userId
+
+  console.log('[markPaid] 👤 UserId extraído:', userId);
 
   // Preparar los datos para actualizar el pago
   const data: Prisma.PaymentUpdateInput = {
@@ -100,6 +112,7 @@ export class PaymentStripeService {
     receiptUrl: latestCharge?.receipt_url ?? null, // El URL del recibo
     paymentMethodType: latestCharge?.payment_method_details?.type ?? null, // Tipo de método de pago
     updatedAt: new Date(), // Establecemos la fecha de actualización
+    ...(userId ? { users: { connect: { user_id: userId } } } : {}),// Asociar usuario si userId está presente
   };
 
   try {
@@ -128,62 +141,93 @@ export class PaymentStripeService {
       receiptUrl: latestCharge?.receipt_url ?? null, // URL del recibo
       paymentMethodType: latestCharge?.payment_method_details?.type ?? null, // Tipo de método de pago
       updatedAt: new Date(), // Fecha de actualización
+      ...(userId ? { users: { connect: { user_id: userId } } } : {}), 
     };
 
     // Creamos el nuevo pago en la base de datos
     await this.prisma.payment.create({ data: createData });
+    this.logger.log(`Pago creado y asociado al usuario: ${userId}`);
   }
 }
 
-  private extractUserIdFromBody(body: any): bigint | undefined {
-    const raw = body?.userId ?? body?.metadata?.userId;
-    if (raw === undefined || raw === null) return undefined;
-    try { return BigInt(raw); } catch { return undefined; }
+
+//revisar en extractUserIdFromBody  
+private extractUserIdFromBody(body: any): bigint | undefined {
+  // Primero intenta desde client_reference_id (lo más confiable)
+  const raw = body?.clientReferenceId || body?.client_reference_id || body?.metadata?.userId;
+  
+  if (raw === undefined || raw === null) return undefined;
+  
+  try { 
+    return BigInt(raw); 
+  } catch { 
+    this.logger.warn(`No se pudo convertir a BigInt: ${raw}`);
+    return undefined; 
   }
+}
 
-  async createEmbeddedCheckoutSession(
-    body: CreateCheckoutSessionDto,
-  ): Promise<{ sessionId: string; clientSecret: string | null }> {
-    try {
-      if (!Array.isArray(body.items) || body.items.length === 0) {
-        throw new BadRequestException('items requerido y no puede estar vacío');
+  // CORREGIDO - método actualizado
+async createEmbeddedCheckoutSession(
+  body: CreateCheckoutSessionDto,
+  userId?: bigint,//parametro añadido 
+): Promise<{ sessionId: string; clientSecret: string | null }> {
+  try {
+    if (!Array.isArray(body.items) || body.items.length === 0) {
+      throw new BadRequestException('items requerido y no puede estar vacío');
+    }
+
+    // Extraer userId del body si no se pasó como parámetro
+    const finalUserId= userId||(body.clientReferenceId ? BigInt(body.clientReferenceId) : undefined);
+
+    // VALIDAR que clientReferenceId esté presente (viene del controller)
+    if (!finalUserId) {
+      throw new BadRequestException('Se requiere usuario autenticado para crear sesión de pago');
+    }
+
+    const lineItems = body.items.map((item) => {
+      const priceId = this.getPriceId(item.price);
+      if (!priceId) throw new BadRequestException(`Precio no definido: ${item.price}`);
+      if (!item.quantity || item.quantity < 1) {
+        throw new BadRequestException('quantity debe ser >= 1');
       }
+      return { price: priceId, quantity: item.quantity };
+    });
 
-      const lineItems = body.items.map((item) => {
-        const priceId = this.getPriceId(item.price);
-        if (!priceId) throw new BadRequestException(`Precio no definido: ${item.price}`);
-        if (!item.quantity || item.quantity < 1) {
-          throw new BadRequestException('quantity debe ser >= 1');
-        }
-        return { price: priceId, quantity: item.quantity };
-      });
+    const returnUrl =
+      body.returnUrl ||
+      `${this.paymentConfigService.stripe.appDomain}/payment/return?session_id={CHECKOUT_SESSION_ID}`;
 
-      const returnUrl =
-        body.returnUrl ||
-        `${this.paymentConfigService.stripe.appDomain}/payment/return?session_id={CHECKOUT_SESSION_ID}`;
+    // CREAR SESIÓN EN STRIPE - asegurando que client_reference_id se pase
+    const session = await this.stripe.checkout.sessions.create({
+      mode: 'payment',
+      ui_mode: 'embedded',
+      line_items: lineItems,
+      return_url: returnUrl,
+      customer_email: body.customerEmail,
+      client_reference_id: String(finalUserId), // 👈 ESTO ES CLAVE
+      metadata:{
+        ...(body.metadata || {}),
+        userId: String(finalUserId), // 👈 Backup en metadata
+      },
+    });
 
-      const session = await this.stripe.checkout.sessions.create({
-        mode: 'payment',
-        ui_mode: 'embedded',
-        line_items: lineItems,
-        return_url: returnUrl,
-        customer_email: body.customerEmail,
-        client_reference_id: body.clientReferenceId,
-        metadata: body.metadata || {},
-      });
+    await this.savePendingSession(session, finalUserId);
 
-      const userId = this.extractUserIdFromBody(body);
-      await this.savePendingSession(session, userId);
+    // Extraer userId del clientReferenceId (que viene del controller)
+
+    if (!finalUserId) {
+      this.logger.warn('No se pudo extraer userId para asociar el pago');
+    }
 
       return { sessionId: session.id, clientSecret: session.client_secret ?? null };
-    } catch (error: any) {
-      this.logger.error('Error al crear sesión embedded', error?.stack || error);
-      if (error?.type === 'StripeInvalidRequestError') {
-        throw new BadRequestException(error.message);
-      }
-      throw new InternalServerErrorException(error?.message || 'Error al crear la sesión de Stripe');
+  } catch (error: any) {
+    this.logger.error('Error al crear sesión embedded', error?.stack || error);
+    if (error?.type === 'StripeInvalidRequestError') {
+      throw new BadRequestException(error.message);
     }
+    throw new InternalServerErrorException(error?.message || 'Error al crear la sesión de Stripe');
   }
+}
 
   async retrieveSessionExpanded(sessionId: string) {
     return await this.stripe.checkout.sessions.retrieve(sessionId, {
@@ -198,7 +242,7 @@ export class PaymentStripeService {
     if (!sessionId) throw new BadRequestException('sessionId requerido');
     try {
       return await this.stripe.checkout.sessions.retrieve(sessionId, {
-        expand: ['payment_intent', 'customer'],
+        expand: ['payment_intent.lastest_charge', 'customer'],
       });
     } catch (error: any) {
       this.logger.error('Error al obtener detalles de la sesión', error?.stack || error);
@@ -221,6 +265,9 @@ export class PaymentStripeService {
 
       const amount =
         typeof session.amount_total === 'number' ? session.amount_total : 0;
+      const pi= session.payment_intent as Stripe.PaymentIntent | null;
+
+        const userId = session.client_reference_id ? BigInt(session.client_reference_id) : undefined;
 
       return {
         isComplete,
@@ -229,6 +276,8 @@ export class PaymentStripeService {
         amount,
         currency: session.currency || 'mxn',
         sessionId: session.id,
+        userId: userId?.toString(), // 👈 Añadir userId a la respuesta
+        clientReferenceId: session.client_reference_id ?? undefined, // 👈 Para debugging
       };
     } catch (error: any) {
       this.logger.error('Error al verificar pago', error?.stack || error);
