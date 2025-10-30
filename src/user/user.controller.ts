@@ -1,34 +1,36 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete } from '@nestjs/common';
-import { UserService } from './user.service';
-import { CreateUserDto } from './dto/create-user.dto';
-import { UpdateUserDto } from './dto/update-user.dto';
+import {
+  Controller, Post, Body, UseGuards, Req, HttpCode, HttpStatus, BadRequestException,
+} from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { JwtAuthGuard } from '@/auth/validation/guards/jwt.guard';
+import { UsersService } from './user.service';
+import { EnrollWorkshopDto } from './dto/enroll-workshop.dto';
+import { Request } from 'express';
 
-@Controller('user')
-export class UserController {
-  constructor(private readonly userService: UserService) {}
+interface AuthenticatedRequest extends Request {
+  user?: { userId: number; email: string };
+}
 
-  @Post()
-  create(@Body() createUserDto: CreateUserDto) {
-    return this.userService.create(createUserDto);
-  }
+@ApiTags('Users')
+@Controller('users')
+export class UsersController {
+  constructor(private readonly usersService: UsersService) {}
 
-  @Get()
-  findAll() {
-    return this.userService.findAll();
-  }
-
-  @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.userService.findOne(+id);
-  }
-
-  @Patch(':id')
-  update(@Param('id') id: string, @Body() updateUserDto: UpdateUserDto) {
-    return this.userService.update(+id, updateUserDto);
-  }
-
-  @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.userService.remove(+id);
+  @ApiOperation({ summary: 'Inscribirse a un taller (usuario actual)' })
+  @ApiResponse({ status: 200, description: 'Inscripción exitosa' })
+  @ApiResponse({ status: 400, description: 'Validación o regla de negocio' })
+  @ApiResponse({ status: 403, description: 'Sin pago verificado' })
+  @ApiResponse({ status: 404, description: 'Taller no encontrado' })
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Post('me/workshop')
+  @HttpCode(HttpStatus.OK)
+  async enrollMyWorkshop(
+    @Req() req: AuthenticatedRequest,
+    @Body() dto: EnrollWorkshopDto,
+  ) {
+    const userId = req.user?.userId;
+    if (!userId) throw new BadRequestException('Usuario no válido');
+    return this.usersService.enrollWorkshop(BigInt(userId), dto.workshopId);
   }
 }
