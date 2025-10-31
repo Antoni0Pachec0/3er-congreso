@@ -180,7 +180,7 @@ export class AuthService {
     const verifyJwt = this.jwtService.sign(
       { purpose: 'email_verification', uid: Number(userId), email: userEmail },
       {
-        expiresIn: process.env.JWT_VERIFY_EXPIRES_IN || 900, // 15 minutos
+        expiresIn: Number(process.env.JWT_VERIFY_EXPIRES_IN) || 900, // 15 minutos
         audience: 'email-verify',
         issuer: 'auth-service',
       },
@@ -563,12 +563,12 @@ async resetPassword(dto: ResetPasswordDto) {
 
     // Generar tokens
     const accessToken = this.jwtService.sign(payload, {
-      expiresIn: process.env.JWT_ACCESS_EXPIRES_IN || 3600, // 1 hora
+      expiresIn: Number(process.env.JWT_ACCESS_EXPIRES_IN) || 3600, // 1 hora
     });
     
     const refreshToken = this.jwtService.sign(
       { ...payload, isRefreshToken: true },
-      { expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || 604800 }, // 7 días
+      { expiresIn: Number(process.env.JWT_REFRESH_EXPIRES_IN) || 604800 }, // 7 días
     );
 
     // Guardar refresh token en la base de datos
@@ -842,11 +842,11 @@ async resetPassword(dto: ResetPasswordDto) {
 
       const payload = { userId: Number(tokenRecord.users.user_id), email: tokenRecord.users.email };
       const newAccessToken = this.jwtService.sign(payload, {
-        expiresIn: process.env.JWT_ACCESS_EXPIRES_IN || 3600,
+        expiresIn: Number(process.env.JWT_ACCESS_EXPIRES_IN) || 3600,
       });
       const newRefreshToken = this.jwtService.sign(
       { ...payload, isRefreshToken: true },
-      { expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || 604800 },
+      { expiresIn: Number(process.env.JWT_REFRESH_EXPIRES_IN) || 604800 },
       );
 
       await this.prisma.verification_token.create({
