@@ -1,3 +1,4 @@
+// src/auth/dto/create-user.dto.ts
 import { ApiProperty } from '@nestjs/swagger';
 import {
   IsString,
@@ -8,6 +9,7 @@ import {
   MinLength,
   IsOptional,
   IsUrl,
+  IsEnum,
 } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
 import { size_enum } from '@prisma/client';
@@ -15,8 +17,13 @@ import { size_enum } from '@prisma/client';
 // Enums para valores específicos que coinciden con tu frontend
 export enum EducationalProgram {
   TI = 'TI',
-  MCC = 'MCC', 
-  AAK = 'AAK'
+  MCC = 'MCC',
+  AAK = 'AAK',
+  II = 'II',
+  MI = 'MI',
+  ASP = 'ASP',
+  NEG = 'NEG',
+  CONT = 'CONT'
 }
 
 export enum Provenance {
@@ -113,8 +120,11 @@ export class CreateUserDto {
   @MaxLength(20, { message: 'La matrícula es demasiado larga' })
   matricula?: string;
 
-  @ApiProperty({ example: 'TI', enum: ['TI', 'MCC', 'AAK'], description: 'Programa educativo para UTTECAM', required: false })
+  @ApiProperty({ example: 'TI', enum: EducationalProgram, description: 'Programa educativo para UTTECAM', required: false })
   @IsOptional()
+  @IsEnum(EducationalProgram, {
+    message: 'El programa educativo debe ser uno de los valores válidos'
+  })
   @IsString({ message: 'El programa educativo debe ser texto' })
   @MaxLength(155, { message: 'El programa educativo es demasiado largo' })
   educational_program?: string;

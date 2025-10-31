@@ -1,3 +1,4 @@
+// src/auth/auth.service.ts
 import {
   UnauthorizedException,
   NotFoundException,
