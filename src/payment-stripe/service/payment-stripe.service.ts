@@ -82,10 +82,16 @@ export class PaymentStripeService {
   }
 
   async markPaidFromSession(session: Stripe.Checkout.Session) {
-  console.log('[markPaid] 🎯 Procesando sesión:', session.id);
-  console.log('[markPaid] 👤 ClientReferenceId:', session.client_reference_id);
-  console.log('[markPaid] 💳 Payment Status:', session.payment_status);
-  console.log('[markPaid] 📧 Customer Email:', session.customer_email);
+    console.log('🎯 [markPaid] Iniciando actualización para sesión:', session.id);
+
+  if (!session) {
+    throw new BadRequestException('sessionId requerido');
+  }  if (session.payment_status !== 'paid') {
+    console.log('❌ [markPaid] Sesión NO está pagada. Status:', session.payment_status);
+    return;
+  }
+
+  
 
   // Obtener el PaymentIntent y el Charge de la sesión
   const pi = session.payment_intent as Stripe.PaymentIntent | null;
@@ -93,7 +99,9 @@ export class PaymentStripeService {
 
   const userId = session.client_reference_id ? BigInt(session.client_reference_id) : undefined;// recupera BigInt del metadata.userId
 
-  console.log('[markPaid] 👤 UserId extraído:', userId);
+  console.log('👤 [markPaid] UserId:', userId);
+  console.log('💰 [markPaid] Amount:', session.amount_total);
+  console.log('💳 [markPaid] Payment Intent:', pi?.id);
 
   // Preparar los datos para actualizar el pago
   const data: Prisma.PaymentUpdateInput = {
