@@ -1,3 +1,4 @@
+// src/auth/auth.service.ts
 import {
   UnauthorizedException,
   NotFoundException,
@@ -22,6 +23,8 @@ import { ResendCodeDto } from '@auth/dto/resend-code.dto';
 import { ForgotPasswordDto } from '@auth/dto/forgot-password.dto';
 import { ResetPasswordDto } from '@auth/dto/reset-password.dto';
 
+import { normalizeGrade, normalizeGroup } from '@/common/utils/normalize-academics';
+
 import * as bcrypt from 'bcrypt';
 import { JwtService } from '@nestjs/jwt';
 import { EmailService } from '@/auth/validation/email/email.service';
@@ -34,11 +37,26 @@ type Tx = Prisma.TransactionClient;
 
 // Tipo explícito para el resultado del login
 export type LoginResult =
-  | { message: string; accessToken: string; refreshToken: string; user_id: number }
+  | { 
+      message: string; 
+      accessToken: string; 
+      refreshToken: string; 
+      user_id: number;
+      user: {
+        user_id: number;
+        email: string;
+        type_user_id: number | null;
+        type_user_name: string | null;
+      };
+    }
   | {
       require_verification: true;
       message: string;
-      user: { user_id: number; email: string; name_user?: string };
+      user: { 
+        user_id: number; 
+        email: string; 
+        name_user?: string;
+      };
       verify_token?: string;
     };
 
@@ -162,7 +180,7 @@ export class AuthService {
     const verifyJwt = this.jwtService.sign(
       { purpose: 'email_verification', uid: Number(userId), email: userEmail },
       {
-        expiresIn: process.env.JWT_VERIFY_EXPIRES_IN || '15m',
+        expiresIn: Number(process.env.JWT_VERIFY_EXPIRES_IN) || 900, // 15 minutos
         audience: 'email-verify',
         issuer: 'auth-service',
       },
@@ -219,6 +237,10 @@ export class AuthService {
     const provenance = (dto.provenance || '').trim();
     const provLower = provenance.toLowerCase();
 
+    // ✅ Normaliza grado/grupo desde el DTO (resuelve "1°", " a ", etc.)
+    const gradeNorm = normalizeGrade(dto.grade ?? null);
+    const groupNorm = normalizeGroup(dto.group_user ?? null);
+
     // Reglas previas
     if (isSpeaker) {
       const secret = (process.env.SPEAKER_SECRET || '').trim();
@@ -229,8 +251,7 @@ export class AuthService {
 
     // Estudiante (1) o Docente UTTECAM (2 + provenance = uttecam) => requieren matrícula y programa
     const isUttecamStudent = typeUserId === 1 && provLower === 'uttecam';
-    const isUttecamCollaborator =
-      typeUserId === 2 && provLower === 'uttecam';
+    const isUttecamCollaborator = typeUserId === 2 && provLower === 'uttecam';
 
     if (isUttecamStudent || isUttecamCollaborator) {
       if (!dto.matricula || !dto.educational_program) {
@@ -243,9 +264,7 @@ export class AuthService {
     }
 
     const hashedPassword = await bcrypt.hash(dto.password_user, 12);
-    const verificationCode = Math.floor(
-      100000 + Math.random() * 900000,
-    ).toString();
+    const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
 
     try {
       const existing = await this.prisma.users.findUnique({
@@ -260,7 +279,7 @@ export class AuthService {
         return this.handleExistingInactiveUser(existing, res);
       }
 
-      // Construir payload base del usuario
+      // 🎯 Construir payload base del usuario con valores normalizados
       const baseData: Prisma.usersCreateInput = {
         name_user: dto.name_user,
         paternal_surname: dto.paternal_surname,
@@ -285,12 +304,15 @@ export class AuthService {
         ...(typeUserId === 3 ? {} : {
           provenance: (dto.provenance || '').trim() || null,
         }),
-        ...((typeUserId === 1 || typeUserId === 2) && (dto.provenance || '').toLowerCase() === 'uttecam' ? {
-          matricula: dto.matricula?.trim() || null,
-          educational_program: dto.educational_program?.trim() || null,
-          grade: typeUserId === 1 ? dto.grade?.trim() || null : null,
-          group_user: typeUserId === 1 ? dto.group_user?.trim() || null : null,
-        } : {}),
+        ...((typeUserId === 1 || typeUserId === 2) &&
+        (dto.provenance || '').toLowerCase() === 'uttecam'
+          ? {
+              matricula: dto.matricula?.trim() || null,
+              educational_program: dto.educational_program?.trim() || null,
+              grade: typeUserId === 1 ? gradeNorm : null,
+              group_user: typeUserId === 1 ? groupNorm : null,
+            }
+          : {}),
       };
 
       // Campos por tipo
@@ -315,10 +337,10 @@ export class AuthService {
         if (provLower === 'uttecam') {
           baseData.matricula = dto.matricula?.trim() || null;
           baseData.educational_program = dto.educational_program?.trim() || null;
-          baseData.grade = typeUserId === 1 ? dto.grade?.trim() || null : null;
-          baseData.group_user = typeUserId === 1 ? dto.group_user?.trim() || null : null;
+          // ✅ alumno: guarda normalizado
+          baseData.grade = typeUserId === 1 ? gradeNorm : null;
+          baseData.group_user = typeUserId === 1 ? groupNorm : null;
         } else {
-          // "otra": no hay columnas específicas en users para universidad_procedencia
           baseData.matricula = null;
           baseData.educational_program = null;
           baseData.grade = null;
@@ -326,28 +348,25 @@ export class AuthService {
         }
       }
 
-      // 1) Crear usuario (rápido, sin email dentro)
+      // 1) Crear usuario
       const user = await this.prisma.users.create({
         data: baseData,
         select: { user_id: true, name_user: true, email: true },
       });
 
-      // 2) Enviar email de verificación (NO rompe el registro si falla)
+      // 2) Enviar verificación (no bloqueante)
       try {
         await this.emailService.sendVerificationCode(user.email, verificationCode);
       } catch (mailErr) {
         console.error('[EmailService] Error enviando verificación:', mailErr);
       }
 
-      // 3) Si es ponente, crear su bundle (transacción corta y atómica)
+      // 3) Ponente: crear bundle
       if (typeUserId === 4) {
         try {
           await this.createSpeakerBundleTx(user.user_id, dto);
         } catch (e) {
           console.error('[AuthService] Error creando bundle ponente:', e);
-          // Si quieres revertir el usuario creado cuando falle el bundle,
-          // puedes descomentar lo siguiente:
-          // await this.prisma.users.delete({ where: { user_id: user.user_id } });
           throw new InternalServerErrorException(
             'No se pudo completar el registro de ponente. Intenta de nuevo.',
           );
@@ -355,11 +374,7 @@ export class AuthService {
       }
 
       // 4) Cookie de verificación (opcional)
-      const fallbackVerifyToken = this.issueVerifyCookie(
-        user.user_id,
-        user.email,
-        res,
-      );
+      const fallbackVerifyToken = this.issueVerifyCookie(user.user_id, user.email, res);
 
       return {
         message: 'Usuario creado. Revisa tu correo para el código.',
@@ -467,14 +482,35 @@ async resetPassword(dto: ResetPasswordDto) {
 
 
   async loginUser(dto: CreateLoginDto): Promise<LoginResult> {
-    try {
-      const user = await this.prisma.users.findUnique({
+  try {
+    // Agregar timeout para la consulta a la base de datos
+    const user = await Promise.race([
+      this.prisma.users.findUnique({
         where: { email: dto.email.toLowerCase().trim() },
-      });
-      if (!user) throw new UnauthorizedException('Las credenciales son incorrectas');
+        select: {
+          user_id: true,
+          email: true,
+          password_user: true,
+          status: true,
+          name_user: true,
+          type_user_id: true,
+          type_user: { select: { name_type: true } },
+        },
+      }),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('DATABASE_TIMEOUT')), 10000)
+      )
+    ]) as any;
 
-      if (user.status !== 'active') {
-        const newCode = Math.floor(100000 + Math.random() * 900000).toString();
+    if (!user) {
+      throw new UnauthorizedException('Correo o contraseña incorrecta');
+    }
+
+    // Verificar si la cuenta requiere verificación
+    if (user.status !== 'active') {
+      const newCode = Math.floor(100000 + Math.random() * 900000).toString();
+      
+      try {
         await this.prisma.verification_token.create({
           data: {
             token: newCode,
@@ -482,17 +518,21 @@ async resetPassword(dto: ResetPasswordDto) {
             user_id: user.user_id,
             used: false,
             attempts: 0,
-            expires_at: new Date(Date.now() + 10 * 60 * 1000),
+            expires_at: new Date(Date.now() + 10 * 60 * 1000), // 10 minutos
           },
         });
-        this.emailService.sendVerificationCode(user.email, newCode).catch(console.error);
 
-        // Emitir cookie/verif token de fallback (igual que en registro)
+        // Enviar email de verificación (no bloqueante)
+        this.emailService.sendVerificationCode(user.email, newCode)
+          .catch((emailError) => {
+            console.error('Error enviando código de verificación:', emailError);
+          });
+
         const fallbackVerifyToken = this.issueVerifyCookie(user.user_id, user.email);
 
-        return {
+        const result: LoginResult = {
           require_verification: true,
-          message: 'Tu cuenta está inactiva. Revisa tu correo para el código.',
+          message: 'Tu cuenta está inactiva. Revisa tu correo para el código de verificación.',
           user: {
             user_id: Number(user.user_id),
             email: user.email,
@@ -500,63 +540,137 @@ async resetPassword(dto: ResetPasswordDto) {
           },
           ...(fallbackVerifyToken ? { verify_token: fallbackVerifyToken } : {}),
         };
+        return result;
+      } catch (verificationError) {
+        console.error('Error creando token de verificación:', verificationError);
+        throw new InternalServerErrorException('Error al generar código de verificación');
       }
+    }
 
-      const isPasswordValid = await bcrypt.compare(dto.password, user.password_user);
-      if (!isPasswordValid) throw new UnauthorizedException('Las credenciales son incorrectas');
+    // Verificar contraseña
+    const isPasswordValid = await bcrypt.compare(dto.password, user.password_user);
+    if (!isPasswordValid) {
+      throw new UnauthorizedException('Correo o contraseña imcorrecta');
+    }
 
-      const payload = { userId: Number(user.user_id), email: user.email };
-      const accessToken = this.jwtService.sign(payload, {
-        expiresIn: process.env.JWT_ACCESS_EXPIRES_IN || '1h',
-      });
-      const refreshToken = this.jwtService.sign(
-        { ...payload, isRefreshToken: true },
-        { expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d' },
-      );
+    // Crear payload para JWT
+    const payload = {
+      userId: Number(user.user_id),
+      email: user.email,
+      roleId: Number(user.type_user_id),
+      roleName: user.type_user?.name_type || null,
+    };
 
+    // Generar tokens
+    const accessToken = this.jwtService.sign(payload, {
+      expiresIn: Number(process.env.JWT_ACCESS_EXPIRES_IN) || 3600, // 1 hora
+    });
+    
+    const refreshToken = this.jwtService.sign(
+      { ...payload, isRefreshToken: true },
+      { expiresIn: Number(process.env.JWT_REFRESH_EXPIRES_IN) || 604800 }, // 7 días
+    );
+
+    // Guardar refresh token en la base de datos
+    try {
       await this.prisma.verification_token.create({
         data: {
           token: refreshToken,
           token_type: 'refresh_token',
           user_id: user.user_id,
           used: false,
-          expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+          expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 días
           attempts: 0,
         },
       });
 
-      const tokens = await this.prisma.verification_token.findMany({
-      where: {
-        user_id: user.user_id,
-        token_type: 'refresh_token',
-        used: false,
-        expires_at: { gt: new Date() }, // solo vigentes
-      },
+      // Limpiar tokens de refresh antiguos (mantener solo los 2 más recientes)
+      const oldTokens = await this.prisma.verification_token.findMany({
+        where: {
+          user_id: user.user_id,
+          token_type: 'refresh_token',
+          used: false,
+          expires_at: { gt: new Date() },
+        },
         orderBy: { created_at: 'desc' },
-        skip: 2, // saltar los 2 más recientes
+        skip: 2, // Mantener los primeros 2, eliminar el resto
       });
 
-      if (tokens.length > 0) {
+      if (oldTokens.length > 0) {
         await this.prisma.verification_token.updateMany({
           where: {
-          verification_token_id: { in: tokens.map(t => t.verification_token_id) },
-        },
+            verification_token_id: { in: oldTokens.map(t => t.verification_token_id) },
+          },
           data: { used: true, used_at: new Date() },
         });
       }
-
-      return {
-        message: 'Login exitoso',
-        accessToken,
-        refreshToken,
-        user_id: Number(user.user_id),
-      };
-    } catch (error) {
-      if (error instanceof UnauthorizedException) throw error;
-      console.error('Error en login:', error);
-      throw new InternalServerErrorException('Error al iniciar sesión');
+    } catch (tokenError) {
+      console.error('Error gestionando tokens:', tokenError);
+      // No lanzamos error aquí para no romper el login por un problema secundario
     }
+
+    // Retornar resultado exitoso
+    const result: LoginResult = {
+      message: 'Login exitoso',
+      accessToken,
+      refreshToken,
+      user_id: Number(user.user_id),
+      user: {
+        user_id: Number(user.user_id),
+        email: user.email,
+        type_user_id: user.type_user_id ? Number(user.type_user_id) : null,
+        type_user_name: user.type_user?.name_type || null,
+      },
+    };
+    
+    return result;
+
+  } catch (error) {
+    // Manejo específico de errores
+    if (error instanceof UnauthorizedException) {
+      throw error;
+    }
+
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      switch (error.code) {
+        case 'P1001':
+          throw new ServiceUnavailableException(
+            'No se puede conectar al servidor de base de datos. Intenta nuevamente en unos momentos.'
+          );
+        case 'P1017':
+          throw new ServiceUnavailableException(
+            'Conexión a la base de datos cerrada. Intenta nuevamente.'
+          );
+        default:
+          console.error('Error de Prisma en login:', error);
+          throw new InternalServerErrorException('Error en el servidor de datos');
+      }
+    }
+
+    if (error instanceof Prisma.PrismaClientInitializationError) {
+      throw new ServiceUnavailableException(
+        'Error de inicialización de la base de datos. Contacta al administrador.'
+      );
+    }
+
+    if (error instanceof Prisma.PrismaClientUnknownRequestError) {
+      console.error('Error desconocido de Prisma en login:', error);
+      throw new InternalServerErrorException('Error inesperado en el servidor');
+    }
+
+    // Manejar timeout personalizado
+    if (error.message === 'DATABASE_TIMEOUT') {
+      throw new ServiceUnavailableException(
+        'El servidor está tardando demasiado en responder. Intenta nuevamente.'
+      );
+    }
+
+    // Error genérico
+    console.error('Error inesperado en login:', error);
+    throw new InternalServerErrorException('Error al iniciar sesión');
   }
+}
+
 
   // auth.service.ts
   async verifyCode(dto: VerifyCodeDto) {
@@ -728,11 +842,11 @@ async resetPassword(dto: ResetPasswordDto) {
 
       const payload = { userId: Number(tokenRecord.users.user_id), email: tokenRecord.users.email };
       const newAccessToken = this.jwtService.sign(payload, {
-        expiresIn: process.env.JWT_ACCESS_EXPIRES_IN || '1h',
+        expiresIn: Number(process.env.JWT_ACCESS_EXPIRES_IN) || 3600,
       });
       const newRefreshToken = this.jwtService.sign(
       { ...payload, isRefreshToken: true },
-      { expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d' },
+      { expiresIn: Number(process.env.JWT_REFRESH_EXPIRES_IN) || 604800 },
       );
 
       await this.prisma.verification_token.create({

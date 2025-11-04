@@ -1,3 +1,4 @@
+// src/auth/auth.controller.ts
 import {
   Controller,
   Post,
@@ -97,37 +98,29 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @Post('login')
   async login(@Body() loginDto: CreateLoginDto, @Res({ passthrough: true }) res: Response) {
-    const result = (await this.authService.loginUser(loginDto)) as LoginResult;
+    const result = await this.authService.loginUser(loginDto);
 
+    // Si requiere verificación, retornar directamente
     if ('require_verification' in result && result.require_verification) {
-      return result; // Cuenta inactiva: no setear tokens
+      return result;
     }
 
-    const { accessToken, refreshToken, user_id, message } = result as {
-      accessToken: string;
-      refreshToken: string;
-      user_id: number;
-      message: string;
-    };
+    // Aquí TypeScript ya sabe que es el otro tipo de LoginResult
+    // porque hicimos la verificación anterior
+    const loginSuccess = result as Extract<LoginResult, { accessToken: string }>;
+    
+    const { accessToken, refreshToken, user_id, message, user } = loginSuccess;
 
     const base = this.cookieBase();
+    res.cookie('access_token', accessToken, { ...base, maxAge: 1000 * 60 * 15 });
+    res.cookie('refresh_token', refreshToken, { ...base, maxAge: 1000 * 60 * 60 * 24 * 7 });
 
-    res.cookie('access_token', accessToken, {
-      ...base,
-      maxAge: 1000 * 60 * 15, // 15 min
-    });
-
-    res.cookie('refresh_token', refreshToken, {
-      ...base,
-      maxAge: 1000 * 60 * 60 * 24 * 7, // 7 días
-    });
-
-    // 🔥 AGREGAR ESTO: Devolver tokens en la respuesta también
-    return { 
-      message, 
+    return {
+      message,
       user_id,
-      access_token: accessToken, // ← NUEVO
-      refresh_token: refreshToken // ← NUEVO
+      access_token: accessToken,
+      refresh_token: refreshToken,
+      user,
     };
   }
 

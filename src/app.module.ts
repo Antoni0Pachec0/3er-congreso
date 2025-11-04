@@ -10,6 +10,8 @@ import { ScoresModule } from './game/scores/scores.module';
 import { PaymentStripeModule } from './payment-stripe/payment-stripe.module';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
+import { AdminModule } from '@/admin/admin.module';
+import { WorkshopModule } from './workshop/workshop.module';
 
 @Module({
   imports: [
@@ -24,6 +26,8 @@ import { APP_GUARD } from '@nestjs/core';
     ScheduleModule, 
     PaymentStripeModule,
     ScoresModule,
+    AdminModule,
+    WorkshopModule,
   ],
   controllers: [AppController],
   providers: [

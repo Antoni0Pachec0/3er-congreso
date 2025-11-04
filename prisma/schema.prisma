@@ -155,6 +155,7 @@ model users {
   status                                      status_user?         @default(inactive)
   status_event                                Boolean?             @default(false)
   matricula                                   String?              @db.VarChar(8)
+  is_badge_printed                            Boolean?             @default(false)
   Payment                                     Payment[]
   attendance                                  attendance[]
   game_score                                  game_score[]
@@ -170,7 +171,7 @@ model users {
 
 model verification_token {
   verification_token_id BigInt    @id @default(autoincrement())
-  token                 String?   @db.VarChar(255)
+  token                 String?
   token_type            String?   @db.VarChar(100)
   created_at            DateTime? @default(now()) @db.Timestamp(6)
   expires_at            DateTime? @default(dbgenerated("(now() + '00:10:00'::interval)")) @db.Timestamp(6)
@@ -193,6 +194,10 @@ model workshop {
   updated_at                               DateTime?    @default(now()) @db.Timestamp(6)
   status                                   status_enum?
   instructor_user_id                       BigInt?
+  instructor_name                          String?      @db.VarChar(255)
+  level                                    String?      @db.VarChar(32)
+  tools                                    String[]
+  category                                 String?      @db.VarChar(100)
   qr_code                                  qr_code[]
   schedule                                 schedule[]
   users_users_workshop_idToworkshop        users[]      @relation("users_workshop_idToworkshop")

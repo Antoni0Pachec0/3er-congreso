@@ -1,3 +1,4 @@
+// src/auth/dto/create-user.dto.ts
 import { ApiProperty } from '@nestjs/swagger';
 import {
   IsString,
@@ -6,24 +7,45 @@ import {
   IsEmail,
   MaxLength,
   MinLength,
-  Length,
-  Matches,
-  IsEnum,
-  IsBoolean,
-  ValidateIf,
   IsOptional,
   IsUrl,
+  IsEnum,
 } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
-import { size_enum, status_user } from '@prisma/client';
+import { size_enum } from '@prisma/client';
+
+// Enums para valores específicos que coinciden con tu frontend
+export enum EducationalProgram {
+  TI = 'TI',
+  MCC = 'MCC',
+  AAK = 'AAK',
+  II = 'II',
+  MI = 'MI',
+  ASP = 'ASP',
+  NEG = 'NEG',
+  CONT = 'CONT'
+}
+
+export enum Provenance {
+  UTTECAM = 'uttecam',
+  OTRA = 'otra'
+}
+
+export enum PresentationType {
+  CONFERENCIA = 'conferencia',
+  TALLER = 'taller',
+  AMBAS = 'ambas'
+}
 
 export class CreateUserDto {
-  // --- Campos Principales y Obligatorios ---
+  // ===================================
+  // CAMPOS OBLIGATORIOS PARA TODOS LOS USUARIOS
+  // ===================================
+
   @ApiProperty({ example: 'Jony', description: 'Nombre del usuario' })
   @IsString({ message: 'El nombre debe ser texto' })
   @IsNotEmpty({ message: 'El nombre es obligatorio' })
   @MaxLength(100, { message: 'El nombre es demasiado largo' })
-  @Matches(/^[A-Za-zÁÉÍÓÚÜÑñ ]+$/, { message: 'Solo se permiten letras y espacios' })
   @Transform(({ value }) => value?.trim().replace(/\s+/g, ' '))
   name_user: string;
 
@@ -31,7 +53,6 @@ export class CreateUserDto {
   @IsString({ message: 'El apellido paterno debe ser texto' })
   @IsNotEmpty({ message: 'El apellido paterno es obligatorio' })
   @MaxLength(100, { message: 'El apellido paterno es demasiado largo' })
-  @Matches(/^[A-Za-zÁÉÍÓÚÜÑñ ]+$/, { message: 'Solo se permiten letras y espacios' })
   @Transform(({ value }) => value?.trim().replace(/\s+/g, ' '))
   paternal_surname: string;
 
@@ -39,30 +60,23 @@ export class CreateUserDto {
   @IsString({ message: 'El apellido materno debe ser texto' })
   @IsNotEmpty({ message: 'El apellido materno es obligatorio' })
   @MaxLength(100, { message: 'El apellido materno es demasiado largo' })
-  @Matches(/^[A-Za-zÁÉÍÓÚÜÑñ ]+$/, { message: 'Solo se permiten letras y espacios' })
   @Transform(({ value }) => value?.trim().replace(/\s+/g, ' '))
   maternal_surname: string;
 
-  // Teléfono principal (obligatorio) en formato internacional E.164
-  @ApiProperty({ example: '+525512345678', description: 'Teléfono del usuario en formato E.164 (+[código país][número])' })
-  @Transform(({ value }) => typeof value === 'string'
-  ? value.replace(/\s|-/g, '')  // quita espacios/guiones
-  : value)
+  @ApiProperty({ example: '+525512345678', description: 'Teléfono del usuario en formato E.164' })
+  @Transform(({ value }) => typeof value === 'string' ? value.replace(/\s|-/g, '') : value)
   @IsString({ message: 'El teléfono debe ser texto' })
   @IsNotEmpty({ message: 'El teléfono es obligatorio' })
-  @Matches(/^\+[1-9]\d{7,14}$/, { message: 'Formato de teléfono inválido. Usa E.164: ej. +525512345678' })
   phone: string;
 
-  // Teléfono de emergencia OPCIONAL en E.164
-  @ApiProperty({ example: '+15551234567', description: 'Teléfono de emergencia (opcional) en formato E.164', required: false })
+  @ApiProperty({ example: '+15551234567', description: 'Teléfono de emergencia (opcional)', required: false })
   @Transform(({ value }) => {
     if (typeof value !== 'string') return value;
     const v = value.replace(/\s|-/g, '').trim();
-    return v === '' ? undefined : v;      // '' -> undefined para pasar IsOptional
+    return v === '' ? undefined : v;
   })
   @IsOptional()
   @IsString({ message: 'El teléfono de emergencia debe ser texto' })
-  @Matches(/^\+[1-9]\d{7,14}$/, { message: 'Formato de teléfono de emergencia inválido (E.164)' })
   emergency_phone?: string;
 
   @ApiProperty({ example: 'example@gmail.com', description: 'Correo electrónico del usuario' })
@@ -75,18 +89,7 @@ export class CreateUserDto {
   @IsNotEmpty({ message: 'La contraseña es obligatoria' })
   @IsString({ message: 'La contraseña debe ser texto' })
   @MinLength(8, { message: 'La contraseña debe tener al menos 8 caracteres' })
-  @Matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).+$/, {
-    message: 'La contraseña debe incluir mayúscula, minúscula, número y un caracter especial',
-  })
   password_user: string;
-  
-  // Se asume que este es un campo obligatorio
-  @ValidateIf(o => [1, 2].includes(Number(o.type_user_id))) // solo estudiante(1)/docente(2)
-  @IsString({ message: 'La procedencia debe ser texto' })
-  @MaxLength(255, { message: 'La procedencia es demasiado larga' })
-  @IsNotEmpty({ message: 'La procedencia es obligatoria' })
-  @Transform(({ value }) => (typeof value === 'string' ? value.trim().toLowerCase() : value))
-  provenance?: string;
 
   @ApiProperty({ example: 1, description: 'ID del tipo de usuario' })
   @Type(() => Number)
@@ -94,128 +97,138 @@ export class CreateUserDto {
   @IsNotEmpty({ message: 'El tipo de usuario es obligatorio' })
   type_user_id: number;
 
-  @ApiProperty({ example: 'M', enum: size_enum, description: 'Talla seleccionada' })
+  @ApiProperty({ example: 'M', enum: ['S', 'M', 'L', 'XL', 'XXL'], description: 'Talla seleccionada' })
   @IsNotEmpty({ message: 'La talla es obligatoria' })
-  @IsEnum(size_enum, { message: 'Talla no válida (S, M, L, XL, XXL, XXXL)' })
-  size_user: size_enum;
+  @IsString({ message: 'La talla debe ser texto' })
+  size_user: string;
 
-  // --- Campos Condicionales ---
-  // Campos de UTTECAM (provenance: 'uttecam')
-  @ValidateIf(o => o.provenance === 'uttecam')
-  @IsNotEmpty({ message: 'La matrícula es obligatoria para usuarios de UTTECAM' })
+  // ===================================
+  // CAMPOS PARA ESTUDIANTES Y MAESTROS (1, 2)
+  // ===================================
+
+  @ApiProperty({ example: 'uttecam', description: 'Procedencia del usuario', required: false })
+  @IsOptional()
+  @IsString({ message: 'La procedencia debe ser texto' })
+  @MaxLength(255, { message: 'La procedencia es demasiado larga' })
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim().toLowerCase() : value))
+  provenance?: string;
+
+  // Campos para UTTECAM
+  @ApiProperty({ example: '12345678', description: 'Matrícula para UTTECAM', required: false })
+  @IsOptional()
   @IsString({ message: 'La matrícula debe ser texto' })
-  @Length(1, 8, { message: 'La matrícula debe tener entre 1 y 8 dígitos' })
-  @Matches(/^\d+$/, { message: 'La matrícula debe contener solo números' })
+  @MaxLength(20, { message: 'La matrícula es demasiado larga' })
   matricula?: string;
 
-  @ValidateIf(o => o.provenance === 'uttecam')
-  @IsNotEmpty({ message: 'El programa educativo es obligatorio para usuarios de UTTECAM' })
+  @ApiProperty({ example: 'TI', enum: EducationalProgram, description: 'Programa educativo para UTTECAM', required: false })
+  @IsOptional()
+  @IsEnum(EducationalProgram, {
+    message: 'El programa educativo debe ser uno de los valores válidos'
+  })
   @IsString({ message: 'El programa educativo debe ser texto' })
   @MaxLength(155, { message: 'El programa educativo es demasiado largo' })
   educational_program?: string;
 
-  @ValidateIf(o => o.provenance === 'uttecam' && Number(o.type_user_id) === 1)
-  @IsNotEmpty({ message: 'El grado es obligatorio para estudiantes de UTTECAM' })
+  @ApiProperty({ example: '7', description: 'Grado para estudiantes UTTECAM', required: false })
+  @IsOptional()
   @IsString({ message: 'El grado debe ser texto' })
-  @Length(1, 2, { message: 'El grado debe tener entre 1 y 2 caracteres' })
+  @MaxLength(5, { message: 'El grado es demasiado largo' })
   grade?: string;
 
-  @ValidateIf(o => o.provenance === 'uttecam' && Number(o.type_user_id) === 1)
-  @IsNotEmpty({ message: 'El grupo es obligatorio para estudiantes de UTTECAM' })
+  @ApiProperty({ example: 'A', description: 'Grupo para estudiantes UTTECAM', required: false })
+  @IsOptional()
   @IsString({ message: 'El grupo debe ser texto' })
-  @Length(1, 1, { message: 'El grupo debe tener solo 1 caracter' })
+  @MaxLength(5, { message: 'El grupo es demasiado largo' })
   group_user?: string;
 
-  // Campo de otra universidad (provenance: 'otra')
-  @ValidateIf(o => o.provenance === 'otra')
-  @IsNotEmpty({ message: 'La universidad de procedencia es obligatoria' })
+  // Campo para otra universidad
+  @ApiProperty({ example: 'Otra Universidad', description: 'Universidad de procedencia', required: false })
+  @IsOptional()
   @IsString({ message: 'La universidad de procedencia debe ser texto' })
   @MaxLength(255, { message: 'La universidad de procedencia es demasiado larga' })
   universidad_procedencia?: string;
 
-  // Campos de Ponente (type_user_id: 4)
-  @ValidateIf(o => o.type_user_id === 4)
-  @IsNotEmpty({ message: 'La empresa de procedencia es obligatoria para ponentes' })
+  // ===================================
+  // CAMPOS PARA PONENTES (4)
+  // ===================================
+
+  @ApiProperty({ example: 'ponente2024', description: 'Contraseña secreta para ponentes', required: false })
+  @IsOptional()
+  @IsString({ message: 'La contraseña secreta debe ser texto' })
+  secret_password?: string;
+
+  @ApiProperty({ example: 'Mi Empresa SA', description: 'Empresa de procedencia', required: false })
+  @IsOptional()
   @IsString({ message: 'La empresa de procedencia debe ser texto' })
+  @MaxLength(100, { message: 'La empresa de procedencia es demasiado larga' })
   empresa_procedencia?: string;
 
-  @ValidateIf(o => o.type_user_id === 4)
-  @IsNotEmpty({ message: 'El rol en la empresa es obligatorio para ponentes' })
+  @ApiProperty({ example: 'CEO', description: 'Rol en la empresa', required: false })
+  @IsOptional()
   @IsString({ message: 'El rol en la empresa debe ser texto' })
+  @MaxLength(100, { message: 'El rol en la empresa es demasiado largo' })
   rol_dentro_empresa?: string;
 
-  @ValidateIf(o => o.type_user_id === 4)
-  @IsNotEmpty({ message: 'La biografía es obligatoria para ponentes' })
+  @ApiProperty({ example: 'Biografía profesional...', description: 'Biografía del ponente', required: false })
+  @IsOptional()
   @IsString({ message: 'La biografía debe ser texto' })
+  @MaxLength(180, { message: 'La biografía es demasiado larga' })
   descripcion_biografia?: string;
 
-  @ValidateIf(o => o.type_user_id === 4)
-  @IsNotEmpty({ message: 'El tipo de presentación es obligatorio para ponentes' })
+  @ApiProperty({ example: 'conferencia', enum: ['conferencia', 'taller', 'ambas'], description: 'Tipo de presentación', required: false })
+  @IsOptional()
   @IsString({ message: 'El tipo de presentación debe ser texto' })
   tipo_presentacion?: string;
 
-  @ValidateIf(o => o.type_user_id === 4 && (o.tipo_presentacion === 'conferencia' || o.tipo_presentacion === 'ambas'))
-  @IsNotEmpty({ message: 'El título de la conferencia es obligatorio' })
+  @ApiProperty({ example: 'Título de conferencia', description: 'Título de la conferencia', required: false })
+  @IsOptional()
   @IsString({ message: 'El título de la conferencia debe ser texto' })
+  @MaxLength(100, { message: 'El título de la conferencia es demasiado largo' })
   titulo_conferencia?: string;
 
-  @ValidateIf(o => o.type_user_id === 4 && (o.tipo_presentacion === 'conferencia' || o.tipo_presentacion === 'ambas'))
-  @IsNotEmpty({ message: 'La descripción de la conferencia es obligatoria' })
+  @ApiProperty({ example: 'Descripción de conferencia...', description: 'Descripción de la conferencia', required: false })
+  @IsOptional()
   @IsString({ message: 'La descripción de la conferencia debe ser texto' })
+  @MaxLength(180, { message: 'La descripción de la conferencia es demasiado larga' })
   descripcion_conferencia?: string;
 
-  @ValidateIf(o => o.type_user_id === 4 && (o.tipo_presentacion === 'taller' || o.tipo_presentacion === 'ambas'))
-  @IsNotEmpty({ message: 'El título del taller es obligatorio' })
+  @ApiProperty({ example: 'Título del taller', description: 'Título del taller', required: false })
+  @IsOptional()
   @IsString({ message: 'El título del taller debe ser texto' })
+  @MaxLength(50, { message: 'El título del taller es demasiado largo' })
   titulo_taller?: string;
 
-  @ValidateIf(o => o.type_user_id === 4 && (o.tipo_presentacion === 'taller' || o.tipo_presentacion === 'ambas'))
-  @IsNotEmpty({ message: 'La descripción del taller es obligatoria' })
-  @IsString({ message: 'La descripción del taller es obligatoria' })
+  @ApiProperty({ example: 'Descripción del taller...', description: 'Descripción del taller', required: false })
+  @IsOptional()
+  @IsString({ message: 'La descripción del taller debe ser texto' })
+  @MaxLength(180, { message: 'La descripción del taller es demasiado larga' })
   descripcion_taller?: string;
 
   // ===================================
-  // CAMPO PARA VALIDACIÓN DE PONENTE
+  // REDES SOCIALES (OPCIONALES PARA PONENTES)
   // ===================================
-  @ApiProperty({
-    example: 'ponente2024',
-    description: 'Contraseña secreta para validar a ponentes/talleristas',
-    required: false
-  })
-  @ValidateIf(o => o.type_user_id === 4)
-  @IsString({
-    message: 'La contraseña secreta debe ser texto'
-  })
-  @IsNotEmpty({
-    message: 'La contraseña secreta es obligatoria para ponentes'
-  })
-  secret_password?: string;
 
-  // ===================================
-  // CAMPOS PARA REDES SOCIALES
-  // ===================================
+  @ApiProperty({ example: 'https://facebook.com/usuario', description: 'URL de Facebook', required: false })
   @IsOptional()
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() || undefined : value))
   @IsString({ message: 'La URL de Facebook debe ser texto' })
-  @IsUrl({}, { message: 'La URL de Facebook no es válida' })
   facebook_link?: string;
 
+  @ApiProperty({ example: 'https://instagram.com/usuario', description: 'URL de Instagram', required: false })
   @IsOptional()
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() || undefined : value))
   @IsString({ message: 'La URL de Instagram debe ser texto' })
-  @IsUrl({}, { message: 'La URL de Instagram no es válida' })
   instagram_link?: string;
 
+  @ApiProperty({ example: 'https://x.com/usuario', description: 'URL de X/Twitter', required: false })
   @IsOptional()
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() || undefined : value))
   @IsString({ message: 'La URL de X debe ser texto' })
-  @IsUrl({}, { message: 'La URL de X no es válida' })
   x_link?: string;
 
+  @ApiProperty({ example: 'https://linkedin.com/in/usuario', description: 'URL de LinkedIn', required: false })
   @IsOptional()
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() || undefined : value))
   @IsString({ message: 'La URL de LinkedIn debe ser texto' })
-  @IsUrl({}, { message: 'La URL de LinkedIn no es válida' })
   linkedin_link?: string;
-
 }
