@@ -503,7 +503,7 @@ async resetPassword(dto: ResetPasswordDto) {
     ]) as any;
 
     if (!user) {
-      throw new UnauthorizedException('Correo o contraseña incorrectas');
+      throw new UnauthorizedException('Correo o contraseña incorrecta');
     }
 
     // Verificar si la cuenta requiere verificación
@@ -550,7 +550,7 @@ async resetPassword(dto: ResetPasswordDto) {
     // Verificar contraseña
     const isPasswordValid = await bcrypt.compare(dto.password, user.password_user);
     if (!isPasswordValid) {
-      throw new UnauthorizedException('Las  son incorrectas');
+      throw new UnauthorizedException('Correo o contraseña imcorrecta');
     }
 
     // Crear payload para JWT
