@@ -166,7 +166,15 @@ export class AuthController {
   @Throttle({ default: { limit: 5, ttl: 60 * 5 } })
   @Post('verify')
   async verifyCode(@Body() verifyCodeDto: VerifyCodeDto) {
-    return this.authService.verifyCode(verifyCodeDto);
+    console.log('Verification request:', verifyCodeDto); // Debug
+    try {
+      const result = await this.authService.verifyCode(verifyCodeDto);
+      console.log('Verification result:', result); // Debug
+      return result;
+    } catch (error) {
+      console.error('Verification error:', error); // Debug
+      throw error;
+    }
   }
 
   @ApiOperation({ summary: 'Reenviar código de verificación al correo electrónico' })
