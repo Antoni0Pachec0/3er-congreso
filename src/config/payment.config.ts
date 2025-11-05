@@ -24,7 +24,7 @@ export class PaymentConfigService {
         secretKey: process.env.STRIPE_SECRET_KEY,
         publicKey: process.env.STRIPE_PUBLIC_KEY,
         webhookSecret: process.env.STRIPE_WEBHOOK_SECRET,
-        appDomain: process.env.APP_DOMAIN || 'http://localhost:3001', // <- aquí
+        appDomain: process.env.APP_DOMAIN || 'http://localhost:3000', // <- aquí
         priceCongreso: process.env.PRICE_CONGRESO,
         pricePaquetes: process.env.PRICE_PAQUETES,
         priceSouvenirs: process.env.PRICE_SOUVENIRS,
