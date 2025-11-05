@@ -409,10 +409,33 @@ export class AuthService {
 
   async forgotPassword(dto: ForgotPasswordDto) {
     const email = dto.email.toLowerCase().trim();
-    const user = await this.prisma.users.findUnique({ where: { email } });
-    if (!user) return { message: 'Código enviado si el email es válido' };
+    
+    // Buscar usuario activo
+    const user = await this.prisma.users.findUnique({ 
+      where: { email },
+      select: { user_id: true, email: true, status: true }
+    });
+    
+    // Por seguridad, no revelar si el usuario existe o no
+    if (!user || user.status !== 'active') {
+      return { 
+        message: 'Si el email existe y está activo, recibirás un código de recuperación' 
+      };
+    }
 
+    // Invalidar tokens de reset anteriores
+    await this.prisma.verification_token.updateMany({
+      where: {
+        user_id: user.user_id,
+        token_type: 'reset_password',
+        used: false,
+      },
+      data: { used: true },
+    });
+
+    // Generar nuevo código
     const code = Math.floor(100000 + Math.random() * 900000).toString();
+    
     await this.prisma.verification_token.create({
       data: {
         token: code,
@@ -420,12 +443,17 @@ export class AuthService {
         user_id: user.user_id,
         used: false,
         attempts: 0,
-        expires_at: new Date(Date.now() + 10 * 60 * 1000),
+        expires_at: new Date(Date.now() + 10 * 60 * 1000), // 10 minutos
       },
     });
 
+    // Enviar email
     await this.emailService.sendVerificationCode(user.email, code);
-    return { message: 'Código enviado, revisa tu correo' };
+    
+    return { 
+      message: 'Código de recuperación enviado, revisa tu correo',
+      email_sent: true
+    };
   }
 
   // src/auth/auth.service.ts (método resetPassword)
@@ -482,194 +510,207 @@ async resetPassword(dto: ResetPasswordDto) {
 
 
   async loginUser(dto: CreateLoginDto): Promise<LoginResult> {
-  try {
-    // Agregar timeout para la consulta a la base de datos
-    const user = await Promise.race([
-      this.prisma.users.findUnique({
-        where: { email: dto.email.toLowerCase().trim() },
-        select: {
-          user_id: true,
-          email: true,
-          password_user: true,
-          status: true,
-          name_user: true,
-          type_user_id: true,
-          type_user: { select: { name_type: true } },
-        },
-      }),
-      new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('DATABASE_TIMEOUT')), 10000)
-      )
-    ]) as any;
-
-    if (!user) {
-      throw new UnauthorizedException('Correo o contraseña incorrecta');
-    }
-
-    // Verificar si la cuenta requiere verificación
-    if (user.status !== 'active') {
-      const newCode = Math.floor(100000 + Math.random() * 900000).toString();
+    try {
+      const email = dto.email.toLowerCase().trim();
       
+      // Buscar usuario con timeout
+      const user = await Promise.race([
+        this.prisma.users.findUnique({
+          where: { email },
+          select: {
+            user_id: true,
+            email: true,
+            password_user: true,
+            status: true,
+            name_user: true,
+            type_user_id: true,
+            type_user: { select: { name_type: true } },
+          },
+        }),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('DATABASE_TIMEOUT')), 10000)
+        )
+      ]) as any;
+
+      if (!user) {
+        throw new UnauthorizedException('Correo o contraseña incorrecta');
+      }
+
+      // Verificar contraseña PRIMERO
+      const isPasswordValid = await bcrypt.compare(dto.password, user.password_user);
+      if (!isPasswordValid) {
+        throw new UnauthorizedException('Correo o contraseña incorrecta'); // ✅ Corregido typo
+      }
+
+      // Verificar si la cuenta requiere verificación
+      if (user.status !== 'active') {
+        const newCode = Math.floor(100000 + Math.random() * 900000).toString();
+        
+        try {
+          // Invalidar tokens anteriores
+          await this.prisma.verification_token.updateMany({
+            where: {
+              user_id: user.user_id,
+              token_type: 'email_verification',
+              used: false,
+            },
+            data: { used: true },
+          });
+
+          // Crear nuevo token
+          await this.prisma.verification_token.create({
+            data: {
+              token: newCode,
+              token_type: 'email_verification',
+              user_id: user.user_id,
+              used: false,
+              attempts: 0,
+              expires_at: new Date(Date.now() + 10 * 60 * 1000), // 10 minutos
+            },
+          });
+
+          // Enviar email de verificación (no bloqueante)
+          this.emailService.sendVerificationCode(user.email, newCode)
+            .catch((emailError) => {
+              console.error('Error enviando código de verificación:', emailError);
+            });
+
+          const fallbackVerifyToken = this.issueVerifyCookie(user.user_id, user.email);
+
+          const result: LoginResult = {
+            require_verification: true,
+            message: 'Tu cuenta está inactiva. Revisa tu correo para el código de verificación.',
+            user: {
+              user_id: Number(user.user_id),
+              email: user.email,
+              name_user: user.name_user ?? undefined,
+            },
+            ...(fallbackVerifyToken ? { verify_token: fallbackVerifyToken } : {}),
+          };
+          return result;
+        } catch (verificationError) {
+          console.error('Error creando token de verificación:', verificationError);
+          throw new InternalServerErrorException('Error al generar código de verificación');
+        }
+      }
+
+      // Cuenta activa - generar tokens
+      const payload = {
+        userId: Number(user.user_id),
+        email: user.email,
+        roleId: Number(user.type_user_id),
+        roleName: user.type_user?.name_type || null,
+      };
+
+      // Generar tokens
+      const accessToken = this.jwtService.sign(payload, {
+        expiresIn: Number(process.env.JWT_ACCESS_EXPIRES_IN) || 3600, // 1 hora
+      });
+      
+      const refreshToken = this.jwtService.sign(
+        { ...payload, isRefreshToken: true },
+        { expiresIn: Number(process.env.JWT_REFRESH_EXPIRES_IN) || 604800 }, // 7 días
+      );
+
+      // Guardar refresh token en la base de datos
       try {
         await this.prisma.verification_token.create({
           data: {
-            token: newCode,
-            token_type: 'email_verification',
+            token: refreshToken,
+            token_type: 'refresh_token',
             user_id: user.user_id,
             used: false,
+            expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 días
             attempts: 0,
-            expires_at: new Date(Date.now() + 10 * 60 * 1000), // 10 minutos
           },
         });
 
-        // Enviar email de verificación (no bloqueante)
-        this.emailService.sendVerificationCode(user.email, newCode)
-          .catch((emailError) => {
-            console.error('Error enviando código de verificación:', emailError);
-          });
-
-        const fallbackVerifyToken = this.issueVerifyCookie(user.user_id, user.email);
-
-        const result: LoginResult = {
-          require_verification: true,
-          message: 'Tu cuenta está inactiva. Revisa tu correo para el código de verificación.',
-          user: {
-            user_id: Number(user.user_id),
-            email: user.email,
-            name_user: user.name_user ?? undefined,
-          },
-          ...(fallbackVerifyToken ? { verify_token: fallbackVerifyToken } : {}),
-        };
-        return result;
-      } catch (verificationError) {
-        console.error('Error creando token de verificación:', verificationError);
-        throw new InternalServerErrorException('Error al generar código de verificación');
-      }
-    }
-
-    // Verificar contraseña
-    const isPasswordValid = await bcrypt.compare(dto.password, user.password_user);
-    if (!isPasswordValid) {
-      throw new UnauthorizedException('Correo o contraseña imcorrecta');
-    }
-
-    // Crear payload para JWT
-    const payload = {
-      userId: Number(user.user_id),
-      email: user.email,
-      roleId: Number(user.type_user_id),
-      roleName: user.type_user?.name_type || null,
-    };
-
-    // Generar tokens
-    const accessToken = this.jwtService.sign(payload, {
-      expiresIn: Number(process.env.JWT_ACCESS_EXPIRES_IN) || 3600, // 1 hora
-    });
-    
-    const refreshToken = this.jwtService.sign(
-      { ...payload, isRefreshToken: true },
-      { expiresIn: Number(process.env.JWT_REFRESH_EXPIRES_IN) || 604800 }, // 7 días
-    );
-
-    // Guardar refresh token en la base de datos
-    try {
-      await this.prisma.verification_token.create({
-        data: {
-          token: refreshToken,
-          token_type: 'refresh_token',
-          user_id: user.user_id,
-          used: false,
-          expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 días
-          attempts: 0,
-        },
-      });
-
-      // Limpiar tokens de refresh antiguos (mantener solo los 2 más recientes)
-      const oldTokens = await this.prisma.verification_token.findMany({
-        where: {
-          user_id: user.user_id,
-          token_type: 'refresh_token',
-          used: false,
-          expires_at: { gt: new Date() },
-        },
-        orderBy: { created_at: 'desc' },
-        skip: 2, // Mantener los primeros 2, eliminar el resto
-      });
-
-      if (oldTokens.length > 0) {
-        await this.prisma.verification_token.updateMany({
+        // Limpiar tokens de refresh antiguos (mantener solo los 2 más recientes)
+        const oldTokens = await this.prisma.verification_token.findMany({
           where: {
-            verification_token_id: { in: oldTokens.map(t => t.verification_token_id) },
+            user_id: user.user_id,
+            token_type: 'refresh_token',
+            used: false,
+            expires_at: { gt: new Date() },
           },
-          data: { used: true, used_at: new Date() },
+          orderBy: { created_at: 'desc' },
+          skip: 2,
         });
-      }
-    } catch (tokenError) {
-      console.error('Error gestionando tokens:', tokenError);
-      // No lanzamos error aquí para no romper el login por un problema secundario
-    }
 
-    // Retornar resultado exitoso
-    const result: LoginResult = {
-      message: 'Login exitoso',
-      accessToken,
-      refreshToken,
-      user_id: Number(user.user_id),
-      user: {
+        if (oldTokens.length > 0) {
+          await this.prisma.verification_token.updateMany({
+            where: {
+              verification_token_id: { in: oldTokens.map(t => t.verification_token_id) },
+            },
+            data: { used: true, used_at: new Date() },
+          });
+        }
+      } catch (tokenError) {
+        console.error('Error gestionando tokens:', tokenError);
+        // No lanzamos error aquí para no romper el login
+      }
+
+      // Retornar resultado exitoso
+      const result: LoginResult = {
+        message: 'Login exitoso',
+        accessToken,
+        refreshToken,
         user_id: Number(user.user_id),
-        email: user.email,
-        type_user_id: user.type_user_id ? Number(user.type_user_id) : null,
-        type_user_name: user.type_user?.name_type || null,
-      },
-    };
-    
-    return result;
+        user: {
+          user_id: Number(user.user_id),
+          email: user.email,
+          type_user_id: user.type_user_id ? Number(user.type_user_id) : null,
+          type_user_name: user.type_user?.name_type || null,
+        },
+      };
+      
+      return result;
 
-  } catch (error) {
-    // Manejo específico de errores
-    if (error instanceof UnauthorizedException) {
-      throw error;
-    }
-
-    if (error instanceof Prisma.PrismaClientKnownRequestError) {
-      switch (error.code) {
-        case 'P1001':
-          throw new ServiceUnavailableException(
-            'No se puede conectar al servidor de base de datos. Intenta nuevamente en unos momentos.'
-          );
-        case 'P1017':
-          throw new ServiceUnavailableException(
-            'Conexión a la base de datos cerrada. Intenta nuevamente.'
-          );
-        default:
-          console.error('Error de Prisma en login:', error);
-          throw new InternalServerErrorException('Error en el servidor de datos');
+    } catch (error) {
+      // Manejo específico de errores
+      if (error instanceof UnauthorizedException) {
+        throw error;
       }
-    }
 
-    if (error instanceof Prisma.PrismaClientInitializationError) {
-      throw new ServiceUnavailableException(
-        'Error de inicialización de la base de datos. Contacta al administrador.'
-      );
-    }
+      if (error instanceof Prisma.PrismaClientKnownRequestError) {
+        switch (error.code) {
+          case 'P1001':
+            throw new ServiceUnavailableException(
+              'No se puede conectar al servidor de base de datos. Intenta nuevamente en unos momentos.'
+            );
+          case 'P1017':
+            throw new ServiceUnavailableException(
+              'Conexión a la base de datos cerrada. Intenta nuevamente.'
+            );
+          default:
+            console.error('Error de Prisma en login:', error);
+            throw new InternalServerErrorException('Error en el servidor de datos');
+        }
+      }
 
-    if (error instanceof Prisma.PrismaClientUnknownRequestError) {
-      console.error('Error desconocido de Prisma en login:', error);
-      throw new InternalServerErrorException('Error inesperado en el servidor');
-    }
+      if (error instanceof Prisma.PrismaClientInitializationError) {
+        throw new ServiceUnavailableException(
+          'Error de inicialización de la base de datos. Contacta al administrador.'
+        );
+      }
 
-    // Manejar timeout personalizado
-    if (error.message === 'DATABASE_TIMEOUT') {
-      throw new ServiceUnavailableException(
-        'El servidor está tardando demasiado en responder. Intenta nuevamente.'
-      );
-    }
+      if (error instanceof Prisma.PrismaClientUnknownRequestError) {
+        console.error('Error desconocido de Prisma en login:', error);
+        throw new InternalServerErrorException('Error inesperado en el servidor');
+      }
 
-    // Error genérico
-    console.error('Error inesperado en login:', error);
-    throw new InternalServerErrorException('Error al iniciar sesión');
+      // Manejar timeout personalizado
+      if (error.message === 'DATABASE_TIMEOUT') {
+        throw new ServiceUnavailableException(
+          'El servidor está tardando demasiado en responder. Intenta nuevamente.'
+        );
+      }
+
+      // Error genérico
+      console.error('Error inesperado en login:', error);
+      throw new InternalServerErrorException('Error al iniciar sesión');
+    }
   }
-}
 
 
   // auth.service.ts

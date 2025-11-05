@@ -56,6 +56,7 @@ async function bootstrap() {
     allowedHeaders: [
       'Content-Type',
       'Authorization',
+      'x-skip-refresh',
       'X-Requested-With',
       'X-Forwarded-For',
       'X-Forwarded-Proto',

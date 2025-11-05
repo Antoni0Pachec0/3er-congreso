@@ -10,6 +10,9 @@ import {
   HttpCode,
   HttpStatus,
   UnauthorizedException,
+  BadRequestException,
+  InternalServerErrorException,
+  HttpException,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
@@ -80,7 +83,19 @@ export class AuthController {
   @ApiResponse({ status: 200, description: 'Código enviado al correo si existe' })
   @Post('forgot-password')
   async forgotPassword(@Body() forgotPasswordDto: ForgotPasswordDto) {
-    return this.authService.forgotPassword(forgotPasswordDto);
+    try {
+      return await this.authService.forgotPassword(forgotPasswordDto);
+    } catch (error) {
+      console.error('Forgot password error:', error);
+      
+      // Para errores de validación, mantener el mensaje
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      
+      // Para otros errores, usar mensaje genérico
+      throw new InternalServerErrorException('Error al procesar la solicitud');
+    }
   }
 
   @ApiOperation({ summary: 'Restablecer contraseña' })
@@ -98,30 +113,54 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @Post('login')
   async login(@Body() loginDto: CreateLoginDto, @Res({ passthrough: true }) res: Response) {
-    const result = await this.authService.loginUser(loginDto);
+    try {
+      const result = await this.authService.loginUser(loginDto);
 
-    // Si requiere verificación, retornar directamente
-    if ('require_verification' in result && result.require_verification) {
-      return result;
+      // Si requiere verificación, retornar directamente
+      if ('require_verification' in result && result.require_verification) {
+        return result;
+      }
+
+      // Login exitoso - configurar cookies
+      const loginSuccess = result as Extract<LoginResult, { accessToken: string }>;
+      const { accessToken, refreshToken, user_id, message, user } = loginSuccess;
+
+      const base = this.cookieBase();
+      
+      // Configurar cookies
+      res.cookie('access_token', accessToken, { 
+        ...base, 
+        maxAge: 15 * 60 * 1000 // 15 minutos
+      });
+      res.cookie('refresh_token', refreshToken, { 
+        ...base, 
+        maxAge: 7 * 24 * 60 * 60 * 1000 // 7 días
+      });
+
+      return {
+        message,
+        user_id,
+        access_token: accessToken,
+        refresh_token: refreshToken,
+        user,
+      };
+    } catch (error) {
+      // Manejo específico de errores
+      if (error instanceof UnauthorizedException) {
+        // Mantener el mensaje original del servicio
+        throw error;
+      }
+      
+      // Log para debugging
+      console.error('Login controller error:', error);
+      
+      // Para otros errores, usar mensaje genérico
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      
+      throw new InternalServerErrorException('Error interno del servidor');
     }
-
-    // Aquí TypeScript ya sabe que es el otro tipo de LoginResult
-    // porque hicimos la verificación anterior
-    const loginSuccess = result as Extract<LoginResult, { accessToken: string }>;
-    
-    const { accessToken, refreshToken, user_id, message, user } = loginSuccess;
-
-    const base = this.cookieBase();
-    res.cookie('access_token', accessToken, { ...base, maxAge: 1000 * 60 * 15 });
-    res.cookie('refresh_token', refreshToken, { ...base, maxAge: 1000 * 60 * 60 * 24 * 7 });
-
-    return {
-      message,
-      user_id,
-      access_token: accessToken,
-      refresh_token: refreshToken,
-      user,
-    };
   }
 
   @ApiOperation({ summary: 'Verificar cuenta con código enviado por correo' })
