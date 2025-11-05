@@ -543,56 +543,54 @@ async resetPassword(dto: ResetPasswordDto) {
       }
 
       // Verificar si la cuenta requiere verificación
-      if (user.status !== 'active') {
-        const newCode = Math.floor(100000 + Math.random() * 900000).toString();
-        
-        try {
-          // Invalidar tokens anteriores
-          await this.prisma.verification_token.updateMany({
-            where: {
-              user_id: user.user_id,
-              token_type: 'email_verification',
-              used: false,
-            },
-            data: { used: true },
-          });
+      // En tu auth.service.ts - el método loginUser ya está bien
+  // Solo verifica que esta parte esté presente:
+    if (user.status !== 'active') {
+      const newCode = Math.floor(100000 + Math.random() * 900000).toString();
+      
+      try {
+        // Invalidar tokens anteriores y crear nuevo
+        await this.prisma.verification_token.updateMany({
+          where: {
+            user_id: user.user_id,
+            token_type: 'email_verification',
+            used: false,
+          },
+          data: { used: true },
+        });
 
-          // Crear nuevo token
-          await this.prisma.verification_token.create({
-            data: {
-              token: newCode,
-              token_type: 'email_verification',
-              user_id: user.user_id,
-              used: false,
-              attempts: 0,
-              expires_at: new Date(Date.now() + 10 * 60 * 1000), // 10 minutos
-            },
-          });
+        await this.prisma.verification_token.create({
+          data: {
+            token: newCode,
+            token_type: 'email_verification',
+            user_id: user.user_id,
+            used: false,
+            attempts: 0,
+            expires_at: new Date(Date.now() + 10 * 60 * 1000),
+          },
+        });
 
-          // Enviar email de verificación (no bloqueante)
-          this.emailService.sendVerificationCode(user.email, newCode)
-            .catch((emailError) => {
-              console.error('Error enviando código de verificación:', emailError);
-            });
+        // Enviar email
+        await this.emailService.sendVerificationCode(user.email, newCode);
 
-          const fallbackVerifyToken = this.issueVerifyCookie(user.user_id, user.email);
+        const fallbackVerifyToken = this.issueVerifyCookie(user.user_id, user.email);
 
-          const result: LoginResult = {
-            require_verification: true,
-            message: 'Tu cuenta está inactiva. Revisa tu correo para el código de verificación.',
-            user: {
-              user_id: Number(user.user_id),
-              email: user.email,
-              name_user: user.name_user ?? undefined,
-            },
-            ...(fallbackVerifyToken ? { verify_token: fallbackVerifyToken } : {}),
-          };
-          return result;
-        } catch (verificationError) {
-          console.error('Error creando token de verificación:', verificationError);
-          throw new InternalServerErrorException('Error al generar código de verificación');
-        }
+        const result: LoginResult = {
+          require_verification: true,
+          message: 'Tu cuenta está inactiva. Revisa tu correo para el código de verificación.',
+          user: {
+            user_id: Number(user.user_id),
+            email: user.email,
+            name_user: user.name_user ?? undefined,
+          },
+          ...(fallbackVerifyToken ? { verify_token: fallbackVerifyToken } : {}),
+        };
+        return result;
+      } catch (verificationError) {
+        console.error('Error creando token de verificación:', verificationError);
+        throw new InternalServerErrorException('Error al generar código de verificación');
       }
+    }
 
       // Cuenta activa - generar tokens
       const payload = {

@@ -116,9 +116,9 @@ export class AuthController {
     try {
       const result = await this.authService.loginUser(loginDto);
 
-      // Si requiere verificación, retornar directamente
+      // ✅ Asegurar que se devuelva el resultado de verificación requerida
       if ('require_verification' in result && result.require_verification) {
-        return result;
+        return result; // Esto incluye el mensaje y datos del usuario no verificado
       }
 
       // Login exitoso - configurar cookies
@@ -127,14 +127,13 @@ export class AuthController {
 
       const base = this.cookieBase();
       
-      // Configurar cookies
       res.cookie('access_token', accessToken, { 
         ...base, 
-        maxAge: 15 * 60 * 1000 // 15 minutos
+        maxAge: 15 * 60 * 1000
       });
       res.cookie('refresh_token', refreshToken, { 
         ...base, 
-        maxAge: 7 * 24 * 60 * 60 * 1000 // 7 días
+        maxAge: 7 * 24 * 60 * 60 * 1000
       });
 
       return {
@@ -145,16 +144,14 @@ export class AuthController {
         user,
       };
     } catch (error) {
-      // Manejo específico de errores
+      // ✅ Mejor manejo de errores específicos
       if (error instanceof UnauthorizedException) {
-        // Mantener el mensaje original del servicio
+        // Mantener mensajes específicos como "Cuenta no verificada"
         throw error;
       }
       
-      // Log para debugging
       console.error('Login controller error:', error);
       
-      // Para otros errores, usar mensaje genérico
       if (error instanceof HttpException) {
         throw error;
       }
