@@ -713,11 +713,14 @@ async resetPassword(dto: ResetPasswordDto) {
   async verifyCode(dto: VerifyCodeDto) {
     const email = dto.email?.toLowerCase().trim();
     const code = String(dto.code || '').trim();
-    
-    // ✅ CORREGIDO: Usar directamente dto.token_type (ya tiene valor por defecto)
     const tokenType = dto.token_type;
 
-    console.log('🔐 [DEBUG] Verificación solicitada:', { email, code, tokenType });
+    console.log('🔐 [DEBUG] Verificación solicitada:', { 
+      email, 
+      code, 
+      tokenType,
+      timestamp: new Date().toISOString()
+    });
 
     if (!email || !/^\d{6}$/.test(code)) {
       console.log('❌ [DEBUG] Email o código inválido');
@@ -740,42 +743,38 @@ async resetPassword(dto: ResetPasswordDto) {
       email: user.email
     });
 
-    // ✅ Buscar token con el tipo correcto
+    // ✅ CORREGIDO: Validar y asegurar el tipo de tokenType
+    const validTokenType = tokenType === 'reset_password' 
+      ? 'reset_password' 
+      : 'email_verification';
+
+    // ✅ Buscar token con el tipo correcto y que no esté expirado
     const token = await this.prisma.verification_token.findFirst({
       where: {
         user_id: user.user_id,
         token: code,
-        token_type: tokenType,
+        token_type: validTokenType, // ✅ Usar el tipo validado
         used: false,
-        expires_at: { gt: new Date() }, // Esto maneja automáticamente valores null
+        expires_at: { 
+          gt: new Date() // Solo tokens que no han expirado
+        },
       },
       orderBy: { created_at: 'desc' },
     });
 
-    console.log('🔍 [DEBUG] Token encontrado:', token ? {
-      id: Number(token.verification_token_id),
-      token: token.token,
-      type: token.token_type,
-      used: token.used,
-      expires: token.expires_at,
-      attempts: token.attempts,
-      created_at: token.created_at,
-      is_expired: token.expires_at ? token.expires_at < new Date() : true // ✅ Manejar null
-    } : 'NO ENCONTRADO');
-
+    // ✅ DEBUG DETALLADO - Si no encontramos token
     if (!token) {
-      console.log('❌ [DEBUG] Token no válido - buscando tokens disponibles para este usuario:');
+      console.log('❌ [DEBUG] Token no encontrado - verificando tokens disponibles:');
       
-      // Debug: mostrar todos los tokens disponibles del usuario
-      const allTokens = await this.prisma.verification_token.findMany({
+      const availableTokens = await this.prisma.verification_token.findMany({
         where: {
           user_id: user.user_id,
-          token_type: tokenType,
+          token_type: validTokenType, // ✅ Usar el tipo validado
         },
         orderBy: { created_at: 'desc' },
       });
       
-      console.log('🔍 [DEBUG] Todos los tokens del usuario:', allTokens.map(t => ({
+      console.log('🔍 [DEBUG] Tokens disponibles del tipo:', validTokenType, availableTokens.map(t => ({
         id: Number(t.verification_token_id),
         token: t.token,
         type: t.token_type,
@@ -783,57 +782,57 @@ async resetPassword(dto: ResetPasswordDto) {
         expires: t.expires_at,
         attempts: t.attempts,
         created_at: t.created_at,
-        is_expired: t.expires_at ? t.expires_at < new Date() : true, // ✅ Manejar null
-        is_used: t.used
+        is_expired: t.expires_at ? t.expires_at < new Date() : true,
+        is_used: t.used,
+        time_until_expiry: t.expires_at ? 
+          Math.round((t.expires_at.getTime() - Date.now()) / 1000) + ' segundos' : 'null'
       })));
 
-      // También buscar tokens de cualquier tipo para debug
-      const anyTokens = await this.prisma.verification_token.findMany({
-        where: {
-          user_id: user.user_id,
-        },
-        orderBy: { created_at: 'desc' },
-      });
-
-      console.log('🔍 [DEBUG] Todos los tokens (cualquier tipo):', anyTokens.map(t => ({
-        id: Number(t.verification_token_id),
-        token: t.token,
-        type: t.token_type,
-        used: t.used,
-        expires: t.expires_at,
-        attempts: t.attempts,
-        created_at: t.created_at,
-        is_expired: t.expires_at ? t.expires_at < new Date() : true // ✅ Manejar null
-      })));
-
-      await this.incrementVerificationAttempts(user.user_id);
-      throw new UnauthorizedException('Código inválido o expirado');
+      // ✅ CORREGIDO: Usar el método específico por tipo con el tipo validado
+      await this.incrementVerificationAttemptsByType(user.user_id, validTokenType);
+      
+      throw new UnauthorizedException('Código inválido o expirado. Solicita un nuevo código.');
     }
 
+    console.log('✅ [DEBUG] Token válido encontrado:', {
+      id: Number(token.verification_token_id),
+      type: token.token_type,
+      expires: token.expires_at,
+      time_until_expiry: token.expires_at ? 
+        Math.round((token.expires_at.getTime() - Date.now()) / 1000) + ' segundos' : 'N/A',
+      attempts: token.attempts,
+      created_at: token.created_at
+    });
+
+    // ✅ Verificar intentos (usando valor por defecto si es null)
     if ((token.attempts ?? 0) >= MAX_ATTEMPTS) {
       console.log('❌ [DEBUG] Demasiados intentos:', token.attempts);
       throw new UnauthorizedException('Demasiados intentos. Solicita un nuevo código.');
     }
 
-    // ✅ Manejar diferentes tipos de token
-    if (tokenType === 'email_verification') {
+    // ✅ Manejar diferentes tipos de token usando el tipo validado
+    if (validTokenType === 'email_verification') {
       console.log('✅ [DEBUG] Activando cuenta de usuario:', Number(user.user_id));
       
       try {
         await this.prisma.$transaction(async (tx) => {
-          // Activar usuario
+          // ✅ CORREGIDO: Usar el enum correcto según tu esquema
           await tx.users.update({
             where: { user_id: user.user_id },
-            data: { status: 'active' as status_user },
+            data: { status: 'active' }, // ✅ 'active' es válido en status_user enum
           });
 
-          // Marcar token como usado
+          // ✅ CORREGIDO: Usar el campo correcto para el ID
           await tx.verification_token.update({
             where: { verification_token_id: token.verification_token_id },
-            data: { used: true, used_at: new Date() },
+            data: { 
+              used: true, 
+              used_at: new Date(),
+              attempts: (token.attempts ?? 0) + 1 // ✅ Registrar el intento exitoso
+            },
           });
 
-          // Invalidar otros tokens de verificación pendientes
+          // ✅ CORREGIDO: Invalidar otros tokens del mismo tipo
           const invalidated = await tx.verification_token.updateMany({
             where: {
               user_id: user.user_id,
@@ -861,16 +860,39 @@ async resetPassword(dto: ResetPasswordDto) {
     }
 
     // Para reset_password, solo validamos que el token existe y es válido
-    if (tokenType === 'reset_password') {
+    if (validTokenType === 'reset_password') {
       console.log('✅ [DEBUG] Código de reset válido para usuario:', Number(user.user_id));
-      return { 
-        ok: true, 
-        message: 'Código válido para restablecer contraseña',
-        valid: true 
-      };
+      
+      try {
+        // ✅ CORREGIDO: Marcar el token como usado para reset_password también
+        await this.prisma.verification_token.update({
+          where: { verification_token_id: token.verification_token_id },
+          data: { 
+            used: true, 
+            used_at: new Date(),
+            attempts: (token.attempts ?? 0) + 1 // ✅ Registrar el intento exitoso
+          },
+        });
+
+        return { 
+          ok: true, 
+          message: 'Código válido para restablecer contraseña',
+          valid: true,
+          user_id: Number(user.user_id)
+        };
+      } catch (updateError) {
+        console.error('❌ [DEBUG] Error al marcar token de reset como usado:', updateError);
+        // No lanzamos error aquí para no romper el flujo de reset
+        return { 
+          ok: true, 
+          message: 'Código válido para restablecer contraseña',
+          valid: true,
+          user_id: Number(user.user_id)
+        };
+      }
     }
 
-    console.log('❌ [DEBUG] Tipo de token no soportado:', tokenType);
+    console.log('❌ [DEBUG] Tipo de token no soportado:', validTokenType);
     throw new UnauthorizedException('Tipo de verificación no soportado');
   }
 
