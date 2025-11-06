@@ -17,11 +17,9 @@ async function bootstrap() {
   });
 
   app.use('/payment-stripe/webhook', bodyParser.raw({ type: 'application/json' }));
-    // Body parsers
+  // Body parsers
   app.use(bodyParser.json({ limit: '1mb' }));
   app.use(bodyParser.urlencoded({ extended: true, limit: '1mb' }));
-
-
 
   // Configuración de proxy para producción
   if (process.env.NODE_ENV === 'production') {
@@ -35,80 +33,73 @@ async function bootstrap() {
   // Middlewares
   app.use(cookieParser());
 
-  // 🔥 CORS CONFIGURACIÓN COMPLETA Y CORREGIDA
-  const FRONT_ORIGINS = [
+  // 🔥 CORS CONFIGURACIÓN SIMPLIFICADA Y FUNCIONAL
+  const allowedOrigins = [
     'http://localhost:3000',
-    //'http://127.0.0.1:3000',
-    envs.frontendUrl || 'http://localhost:3000',
-    'http://localhost:3000',
+    'https://congresoti.com.mx',
+    'https://www.congresoti.com.mx',
+    envs.frontendUrl || 'https://congresoti.com.mx'
   ].filter(Boolean);
 
-  const uniqueOrigins = [...new Set(FRONT_ORIGINS)];
+  const uniqueOrigins = [...new Set(allowedOrigins)];
 
   const logger = new Logger('Bootstrap');
   logger.log(`🌐 Configurando CORS para orígenes: ${uniqueOrigins.join(', ')}`);
 
-  // 🔥 CONFIGURACIÓN CORS PRINCIPAL
+  // 🔥 CONFIGURACIÓN CORS PRINCIPAL - CORREGIDA
   app.enableCors({
-    origin: [envs.frontendUrl || 'http://localhost:3000'],
-    credentials: true, // Permite cookies/headers de sesión
-    methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+    origin: function (origin, callback) {
+      // Permitir requests sin origin (como mobile apps o curl)
+      if (!origin) return callback(null, true);
+      
+      if (uniqueOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        logger.warn(`🚫 Origen CORS bloqueado: ${origin}`);
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'],
     allowedHeaders: [
       'Content-Type',
-      'Authorization',
-      'x-skip-refresh',
+      'Authorization', 
       'X-Requested-With',
       'X-Forwarded-For',
       'X-Forwarded-Proto',
       'Cookie',
       'Set-Cookie',
-      'Access-Control-Allow-Headers',
-      'Access-Control-Allow-Origin', 
-      'Access-Control-Allow-Credentials',
+      'x-skip-refresh',
       'Idempotency-Key',
-      'stripe-signature',
-      'Accept',
-      'Accept-Language',
-      'Content-Language',
-      'Origin',
-      'Referer',
-      // 🔥 NUEVOS HEADERS PERMITIDOS
-      'X-Origin',
-      'X-Debug-Mode',
-      'User-Agent'
+      'stripe-signature'
     ],
     exposedHeaders: [
       'Set-Cookie',
-      'Cookie',
-      'Authorization',
-      'Access-Control-Allow-Origin',
-      'Access-Control-Allow-Credentials'
+      'Authorization'
     ],
     preflightContinue: false,
     optionsSuccessStatus: 204,
     maxAge: 86400
   });
 
-  // 🔥 MIDDLEWARE PARA MANEJO DE PREFLIGHT
+  // 🔥 MIDDLEWARE ESPECÍFICO PARA MANEJO DE CREDENCIALES
   app.use((req: any, res: any, next: any) => {
     const origin = req.headers.origin;
     
-    // Manejar preflight requests
-    if (req.method === 'OPTIONS') {
-      res.header('Access-Control-Allow-Origin', origin);
-      res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD');
-      res.header('Access-Control-Allow-Headers', 
-        'Content-Type, Authorization, X-Requested-With, X-Forwarded-For, X-Forwarded-Proto, Cookie, Set-Cookie, X-Origin, X-Debug-Mode'
-      );
-      res.header('Access-Control-Allow-Credentials', 'true');
-      res.header('Access-Control-Max-Age', '86400');
-      return res.status(204).send();
-    }
-    
-    // Para requests normales
+    // Para requests normales, establecer headers CORS
     if (origin && uniqueOrigins.includes(origin)) {
       res.header('Access-Control-Allow-Origin', origin);
       res.header('Access-Control-Allow-Credentials', 'true');
+    }
+    
+    // Manejo específico para preflight OPTIONS
+    if (req.method === 'OPTIONS') {
+      res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD');
+      res.header('Access-Control-Allow-Headers', 
+        'Content-Type, Authorization, X-Requested-With, X-Forwarded-For, X-Forwarded-Proto, Cookie, Set-Cookie, x-skip-refresh'
+      );
+      res.header('Access-Control-Max-Age', '86400');
+      return res.status(204).send();
     }
     
     next();
@@ -116,18 +107,18 @@ async function bootstrap() {
 
   // Validaciones globales
   app.useGlobalPipes(new ValidationPipe({
-  whitelist: true,
-  transform: true,
-  forbidNonWhitelisted: true,
-  transformOptions: { enableImplicitConversion: true },
-  exceptionFactory: (errors) => {
-    const formatted = errors.map(e => ({
-      property: e.property,
-      constraints: e.constraints,
-    }));
-    return new BadRequestException({ errors: formatted, message: 'Datos inválidos' });
-  },
-}));
+    whitelist: true,
+    transform: true,
+    forbidNonWhitelisted: true,
+    transformOptions: { enableImplicitConversion: true },
+    exceptionFactory: (errors) => {
+      const formatted = errors.map(e => ({
+        property: e.property,
+        constraints: e.constraints,
+      }));
+      return new BadRequestException({ errors: formatted, message: 'Datos inválidos' });
+    },
+  }));
 
   // Filtro global
   app.useGlobalFilters(new HttpExceptionFilter());
@@ -175,20 +166,20 @@ async function bootstrap() {
     customSiteTitle: 'API - 3er Congreso TI',
   });
 
-
   // Iniciar servidor
   const port = envs.port || 3001;
   await app.listen(port);
 
-  logger.log(` Servidor ejecutándose en: http://localhost:${port}`);
-  logger.log(`CORS configurado para ${uniqueOrigins.length} orígenes`);
-  logger.log(`Modo de autenticación: JWT + Cookies`);
-  logger.log(` Documentación API: http://localhost:${port}/api`);
-  logger.log(` Entorno: ${process.env.NODE_ENV || 'development'}`);
+  logger.log(`🚀 Servidor ejecutándose en: http://localhost:${port}`);
+  logger.log(`🌐 CORS configurado para ${uniqueOrigins.length} orígenes`);
+  logger.log(`🔐 Modo de autenticación: JWT + Cookies`);
+  logger.log(`📚 Documentación API: http://localhost:${port}/api`);
+  logger.log(`⚙️  Entorno: ${process.env.NODE_ENV || 'development'}`);
   
   if (process.env.NODE_ENV === 'development') {
     logger.log(`\n💡 TIPS PARA DESARROLLO:`);
-    logger.log(`   • Headers permitidos: X-Origin, X-Debug-Mode, etc.`);
+    logger.log(`   • Frontend: http://localhost:3000`);
+    logger.log(`   • API: http://localhost:${port}`);
     logger.log(`   • CORS configurado para desarrollo local`);
   }
 }

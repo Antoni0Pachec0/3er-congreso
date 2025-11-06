@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsEmail, Length, IsIn, IsOptional, Matches } from 'class-validator';
 import { Transform } from 'class-transformer';
 
+// verify-code.dto.ts
 export class VerifyCodeDto {
   @ApiProperty({ example: 'user@example.com', description: 'Correo del usuario' })
   @IsEmail({}, { message: 'Debe ser un email válido' })
@@ -13,7 +14,11 @@ export class VerifyCodeDto {
   @Matches(/^\d{6}$/, { message: 'El código debe ser numérico' })
   code: string;
 
-  @ApiPropertyOptional({ enum: ['email_verification', 'reset_password'], description: 'Tipo de verificación' })
+  @ApiPropertyOptional({ 
+    enum: ['email_verification', 'reset_password'], 
+    description: 'Tipo de verificación',
+    default: 'email_verification'
+  })
   @IsOptional()
   @IsIn(['email_verification', 'reset_password'])
   token_type?: 'email_verification' | 'reset_password' = 'email_verification';

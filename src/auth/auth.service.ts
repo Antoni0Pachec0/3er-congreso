@@ -710,43 +710,52 @@ async resetPassword(dto: ResetPasswordDto) {
     }
   }
 
-
-  // auth.service.ts
   async verifyCode(dto: VerifyCodeDto) {
     const email = dto.email?.toLowerCase().trim();
     const code = String(dto.code || '').trim();
-    const tokenType = dto.token_type || 'email_verification'; // ✅ usar token_type
+    
+    // ✅ CORREGIDO: Usar directamente dto.token_type (ya tiene valor por defecto)
+    const tokenType = dto.token_type;
+
+    console.log('🔐 Verificación solicitada:', { email, code, tokenType }); // Debug
 
     if (!email || !/^\d{6}$/.test(code)) {
-      throw new UnauthorizedException('Código de verificación inválido o expirado');
+      throw new UnauthorizedException('Código de verificación inválido o expirado'); // ✅ Comillas simples
     }
 
     const user = await this.prisma.users.findUnique({ where: { email } });
-    if (!user) throw new UnauthorizedException('Código de verificación inválido o expirado');
+    if (!user) {
+      console.log('❌ Usuario no encontrado:', email);
+      throw new UnauthorizedException('Código de verificación inválido o expirado'); // ✅ Comillas simples
+    }
 
+    // ✅ Buscar token con el tipo correcto
     const token = await this.prisma.verification_token.findFirst({
       where: {
         user_id: user.user_id,
         token: code,
-        token_type: tokenType,          // ✅ clave: usar el tipo que llega
+        token_type: tokenType, // Usar el tipo que viene del frontend
         used: false,
         expires_at: { gt: new Date() },
       },
       orderBy: { created_at: 'desc' },
     });
 
+    console.log('🔍 Token encontrado:', token ? 'SÍ' : 'NO'); // Debug
+
     if (!token) {
-      // (opcional) intenta incrementar intentos por tipo
-      await this.incrementVerificationAttemptsByType(user.user_id, tokenType);
-      throw new UnauthorizedException('Código de verificación inválido o expirado');
+      console.log('❌ Token no válido - incrementando intentos');
+      await this.incrementVerificationAttempts(user.user_id);
+      throw new UnauthorizedException('Código inválido o expirado'); // ✅ Comillas simples
     }
 
     if ((token.attempts ?? 0) >= MAX_ATTEMPTS) {
       throw new UnauthorizedException('Demasiados intentos. Solicita un nuevo código.');
     }
 
+    // ✅ Manejar diferentes tipos de token
     if (tokenType === 'email_verification') {
-      // ✔ activar cuenta y consumir token de verificación de email
+      console.log('✅ Activando cuenta de usuario');
       await this.prisma.$transaction(async (tx) => {
         await tx.users.update({
           where: { user_id: user.user_id },
@@ -758,6 +767,7 @@ async resetPassword(dto: ResetPasswordDto) {
           data: { used: true, used_at: new Date() },
         });
 
+        // Invalidar otros tokens de verificación pendientes
         await tx.verification_token.updateMany({
           where: {
             user_id: user.user_id,
@@ -769,83 +779,64 @@ async resetPassword(dto: ResetPasswordDto) {
         });
       });
 
-      return { message: 'Usuario verificado exitosamente', user_id: Number(user.user_id) };
+      return { 
+        message: 'Usuario verificado exitosamente', 
+        user_id: Number(user.user_id),
+        verified: true 
+      };
     }
 
-    // token_type === 'reset_password'
-    // ✔ Solo validar existencia; NO consumimos aquí.
-    // El consumo se hace en resetPassword() cuando ya cambian la contraseña.
-    return { ok: true, message: 'Código válido para restablecer contraseña' };
+    // Para reset_password, solo validamos que el token existe y es válido
+    if (tokenType === 'reset_password') {
+      console.log('✅ Código de reset válido');
+      return { 
+        ok: true, 
+        message: 'Código válido para restablecer contraseña',
+        valid: true 
+      };
+    }
+
+    throw new UnauthorizedException('Tipo de verificación no soportado');
   }
 
-  // helper nuevo
-  private async incrementVerificationAttemptsByType(userId: bigint, tokenType: 'email_verification' | 'reset_password') {
-    try {
-      const latestToken = await this.prisma.verification_token.findFirst({
-        where: {
-          user_id: userId,
-          token_type: tokenType,
-          used: false,
-          created_at: { gte: new Date(Date.now() - VERIFICATION_TTL_MS) },
-        },
-        orderBy: { created_at: 'desc' },
-      });
-      if (latestToken) {
-        await this.prisma.verification_token.update({
-          where: { verification_token_id: latestToken.verification_token_id },
-          data: { attempts: { increment: 1 } },
-        });
-      }
-    } catch (e) {
-      console.error('Error incrementando intentos:', e);
-    }
-  }
-
-  private async incrementVerificationAttempts(userId: bigint) {
-    try {
-      const latestToken = await this.prisma.verification_token.findFirst({
-        where: {
-          user_id: userId,
-          token_type: 'email_verification',
-          used: false,
-          created_at: { gte: new Date(Date.now() - VERIFICATION_TTL_MS) },
-        },
-        orderBy: { created_at: 'desc' },
-      });
-      if (latestToken) {
-        await this.prisma.verification_token.update({
-          where: { verification_token_id: latestToken.verification_token_id },
-          data: { attempts: { increment: 1 } },
-        });
-      }
-    } catch (e) {
-      console.error('Error incrementando intentos:', e);
-    }
-  }
+  // En tu AuthService, agrega este método después del método verifyCode:
 
   async resendCode(dto: ResendCodeDto) {
     const email = dto.email?.toLowerCase().trim();
     if (!email) throw new BadRequestException('Email requerido');
 
     const user = await this.prisma.users.findUnique({ where: { email } });
-    if (!user) return { message: 'Código de verificación reenviado exitosamente' };
+    if (!user) {
+      // Por seguridad, no revelar si el usuario existe o no
+      return { message: 'Código de verificación reenviado exitosamente' };
+    }
 
+    // Verificar cooldown
     const recent = await this.prisma.verification_token.findFirst({
       where: {
         user_id: user.user_id,
         token_type: 'email_verification',
-        created_at: { gte: new Date(Date.now() + -RESEND_COOLDOWN_MS) },
+        created_at: { gte: new Date(Date.now() - RESEND_COOLDOWN_MS) },
         used: false,
       },
       orderBy: { created_at: 'desc' },
     });
-    if (recent) throw new HttpException('Espera unos segundos antes de pedir otro código.', 429);
+    
+    if (recent) {
+      throw new HttpException('Espera unos segundos antes de pedir otro código.', 429);
+    }
 
+    // Invalidar tokens anteriores
     await this.prisma.verification_token.updateMany({
-      where: { user_id: user.user_id, token_type: 'email_verification', used: false },
+      where: { 
+        user_id: user.user_id, 
+        token_type: 'email_verification', 
+        used: false 
+      },
       data: { used: true },
     });
 
+    // Generar nuevo código
     const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
     const expiresAt = new Date(Date.now() + VERIFICATION_TTL_MS);
 
@@ -860,9 +851,66 @@ async resetPassword(dto: ResetPasswordDto) {
       },
     });
 
-    await this.emailService.sendVerificationCode(user.email, verificationCode);
+    // Enviar email
+    try {
+      await this.emailService.sendVerificationCode(user.email, verificationCode);
+    } catch (mailErr) {
+      console.error('[EmailService] Error enviando verificación:', mailErr);
+      throw new InternalServerErrorException('Error al enviar el código de verificación');
+    }
+
     return { message: 'Código de verificación reenviado exitosamente' };
   }
+
+  private async incrementVerificationAttempts(userId: bigint) {
+  try {
+    const latestToken = await this.prisma.verification_token.findFirst({
+      where: {
+        user_id: userId,
+        token_type: 'email_verification',
+        used: false,
+        created_at: { gte: new Date(Date.now() - VERIFICATION_TTL_MS) },
+      },
+      orderBy: { created_at: 'desc' },
+    });
+    if (latestToken) {
+      await this.prisma.verification_token.update({
+        where: { verification_token_id: latestToken.verification_token_id },
+        data: { attempts: { increment: 1 } },
+      });
+    }
+  } catch (e) {
+    console.error('Error incrementando intentos:', e);
+  }
+}
+
+// ✅ AGREGAR ESTE MÉTODO NUEVO
+private async incrementVerificationAttemptsByType(
+  userId: bigint, 
+  tokenType: 'email_verification' | 'reset_password'
+) {
+  try {
+    const latestToken = await this.prisma.verification_token.findFirst({
+      where: {
+        user_id: userId,
+        token_type: tokenType, // ✅ Usar el tipo específico
+        used: false,
+        created_at: { gte: new Date(Date.now() - VERIFICATION_TTL_MS) },
+      },
+      orderBy: { created_at: 'desc' },
+    });
+    
+    if (latestToken) {
+      await this.prisma.verification_token.update({
+        where: { verification_token_id: latestToken.verification_token_id },
+        data: { attempts: { increment: 1 } },
+      });
+      console.log(`📈 Intentos incrementados para token tipo: ${tokenType}`);
+    }
+  } catch (e) {
+    console.error('Error incrementando intentos por tipo:', e);
+  }
+}
 
   async refreshToken(refreshToken: string) {
     try {
