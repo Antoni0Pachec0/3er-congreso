@@ -717,78 +717,152 @@ async resetPassword(dto: ResetPasswordDto) {
     // ✅ CORREGIDO: Usar directamente dto.token_type (ya tiene valor por defecto)
     const tokenType = dto.token_type;
 
-    console.log('🔐 Verificación solicitada:', { email, code, tokenType }); // Debug
+    console.log('🔐 [DEBUG] Verificación solicitada:', { email, code, tokenType });
 
     if (!email || !/^\d{6}$/.test(code)) {
-      throw new UnauthorizedException('Código de verificación inválido o expirado'); // ✅ Comillas simples
+      console.log('❌ [DEBUG] Email o código inválido');
+      throw new UnauthorizedException('Código de verificación inválido o expirado');
     }
 
-    const user = await this.prisma.users.findUnique({ where: { email } });
+    const user = await this.prisma.users.findUnique({ 
+      where: { email },
+      select: { user_id: true, status: true, email: true }
+    });
+    
     if (!user) {
-      console.log('❌ Usuario no encontrado:', email);
-      throw new UnauthorizedException('Código de verificación inválido o expirado'); // ✅ Comillas simples
+      console.log('❌ [DEBUG] Usuario no encontrado:', email);
+      throw new UnauthorizedException('Código de verificación inválido o expirado');
     }
+
+    console.log('🔍 [DEBUG] Usuario encontrado:', {
+      user_id: Number(user.user_id),
+      status: user.status,
+      email: user.email
+    });
 
     // ✅ Buscar token con el tipo correcto
     const token = await this.prisma.verification_token.findFirst({
       where: {
         user_id: user.user_id,
         token: code,
-        token_type: tokenType, // Usar el tipo que viene del frontend
+        token_type: tokenType,
         used: false,
-        expires_at: { gt: new Date() },
+        expires_at: { gt: new Date() }, // Esto maneja automáticamente valores null
       },
       orderBy: { created_at: 'desc' },
     });
 
-    console.log('🔍 Token encontrado:', token ? 'SÍ' : 'NO'); // Debug
+    console.log('🔍 [DEBUG] Token encontrado:', token ? {
+      id: Number(token.verification_token_id),
+      token: token.token,
+      type: token.token_type,
+      used: token.used,
+      expires: token.expires_at,
+      attempts: token.attempts,
+      created_at: token.created_at,
+      is_expired: token.expires_at ? token.expires_at < new Date() : true // ✅ Manejar null
+    } : 'NO ENCONTRADO');
 
     if (!token) {
-      console.log('❌ Token no válido - incrementando intentos');
+      console.log('❌ [DEBUG] Token no válido - buscando tokens disponibles para este usuario:');
+      
+      // Debug: mostrar todos los tokens disponibles del usuario
+      const allTokens = await this.prisma.verification_token.findMany({
+        where: {
+          user_id: user.user_id,
+          token_type: tokenType,
+        },
+        orderBy: { created_at: 'desc' },
+      });
+      
+      console.log('🔍 [DEBUG] Todos los tokens del usuario:', allTokens.map(t => ({
+        id: Number(t.verification_token_id),
+        token: t.token,
+        type: t.token_type,
+        used: t.used,
+        expires: t.expires_at,
+        attempts: t.attempts,
+        created_at: t.created_at,
+        is_expired: t.expires_at ? t.expires_at < new Date() : true, // ✅ Manejar null
+        is_used: t.used
+      })));
+
+      // También buscar tokens de cualquier tipo para debug
+      const anyTokens = await this.prisma.verification_token.findMany({
+        where: {
+          user_id: user.user_id,
+        },
+        orderBy: { created_at: 'desc' },
+      });
+
+      console.log('🔍 [DEBUG] Todos los tokens (cualquier tipo):', anyTokens.map(t => ({
+        id: Number(t.verification_token_id),
+        token: t.token,
+        type: t.token_type,
+        used: t.used,
+        expires: t.expires_at,
+        attempts: t.attempts,
+        created_at: t.created_at,
+        is_expired: t.expires_at ? t.expires_at < new Date() : true // ✅ Manejar null
+      })));
+
       await this.incrementVerificationAttempts(user.user_id);
-      throw new UnauthorizedException('Código inválido o expirado'); // ✅ Comillas simples
+      throw new UnauthorizedException('Código inválido o expirado');
     }
 
     if ((token.attempts ?? 0) >= MAX_ATTEMPTS) {
+      console.log('❌ [DEBUG] Demasiados intentos:', token.attempts);
       throw new UnauthorizedException('Demasiados intentos. Solicita un nuevo código.');
     }
 
     // ✅ Manejar diferentes tipos de token
     if (tokenType === 'email_verification') {
-      console.log('✅ Activando cuenta de usuario');
-      await this.prisma.$transaction(async (tx) => {
-        await tx.users.update({
-          where: { user_id: user.user_id },
-          data: { status: 'active' as status_user },
+      console.log('✅ [DEBUG] Activando cuenta de usuario:', Number(user.user_id));
+      
+      try {
+        await this.prisma.$transaction(async (tx) => {
+          // Activar usuario
+          await tx.users.update({
+            where: { user_id: user.user_id },
+            data: { status: 'active' as status_user },
+          });
+
+          // Marcar token como usado
+          await tx.verification_token.update({
+            where: { verification_token_id: token.verification_token_id },
+            data: { used: true, used_at: new Date() },
+          });
+
+          // Invalidar otros tokens de verificación pendientes
+          const invalidated = await tx.verification_token.updateMany({
+            where: {
+              user_id: user.user_id,
+              token_type: 'email_verification',
+              used: false,
+              verification_token_id: { not: token.verification_token_id },
+            },
+            data: { used: true },
+          });
+
+          console.log('✅ [DEBUG] Tokens invalidados:', invalidated.count);
         });
 
-        await tx.verification_token.update({
-          where: { verification_token_id: token.verification_token_id },
-          data: { used: true, used_at: new Date() },
-        });
+        console.log('🎉 [DEBUG] Usuario activado exitosamente');
 
-        // Invalidar otros tokens de verificación pendientes
-        await tx.verification_token.updateMany({
-          where: {
-            user_id: user.user_id,
-            token_type: 'email_verification',
-            used: false,
-            verification_token_id: { not: token.verification_token_id },
-          },
-          data: { used: true },
-        });
-      });
-
-      return { 
-        message: 'Usuario verificado exitosamente', 
-        user_id: Number(user.user_id),
-        verified: true 
-      };
+        return { 
+          message: 'Usuario verificado exitosamente', 
+          user_id: Number(user.user_id),
+          verified: true 
+        };
+      } catch (transactionError) {
+        console.error('❌ [DEBUG] Error en transacción:', transactionError);
+        throw new InternalServerErrorException('Error al activar la cuenta');
+      }
     }
 
     // Para reset_password, solo validamos que el token existe y es válido
     if (tokenType === 'reset_password') {
-      console.log('✅ Código de reset válido');
+      console.log('✅ [DEBUG] Código de reset válido para usuario:', Number(user.user_id));
       return { 
         ok: true, 
         message: 'Código válido para restablecer contraseña',
@@ -796,6 +870,7 @@ async resetPassword(dto: ResetPasswordDto) {
       };
     }
 
+    console.log('❌ [DEBUG] Tipo de token no soportado:', tokenType);
     throw new UnauthorizedException('Tipo de verificación no soportado');
   }
 

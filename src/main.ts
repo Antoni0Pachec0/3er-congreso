@@ -13,11 +13,10 @@ import * as bodyParser from 'body-parser';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
     rawBody: true,
-    cors: false, // Configuramos CORS manualmente
+    cors: true, // ✅ ACTIVAR CORS NATIVO
   });
 
   app.use('/payment-stripe/webhook', bodyParser.raw({ type: 'application/json' }));
-  // Body parsers
   app.use(bodyParser.json({ limit: '1mb' }));
   app.use(bodyParser.urlencoded({ extended: true, limit: '1mb' }));
 
@@ -33,7 +32,7 @@ async function bootstrap() {
   // Middlewares
   app.use(cookieParser());
 
-  // 🔥 CORS CONFIGURACIÓN SIMPLIFICADA Y FUNCIONAL
+  // 🔥 CORS CONFIGURACIÓN COMPLETA Y FUNCIONAL
   const allowedOrigins = [
     'http://localhost:3000',
     'https://congresoti.com.mx',
@@ -46,19 +45,9 @@ async function bootstrap() {
   const logger = new Logger('Bootstrap');
   logger.log(`🌐 Configurando CORS para orígenes: ${uniqueOrigins.join(', ')}`);
 
-  // 🔥 CONFIGURACIÓN CORS PRINCIPAL - CORREGIDA
+  // ✅ CONFIGURACIÓN CORS SIMPLIFICADA Y ROBUSTA
   app.enableCors({
-    origin: function (origin, callback) {
-      // Permitir requests sin origin (como mobile apps o curl)
-      if (!origin) return callback(null, true);
-      
-      if (uniqueOrigins.includes(origin)) {
-        callback(null, true);
-      } else {
-        logger.warn(`🚫 Origen CORS bloqueado: ${origin}`);
-        callback(new Error('Not allowed by CORS'));
-      }
-    },
+    origin: uniqueOrigins,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'],
     allowedHeaders: [
@@ -71,38 +60,19 @@ async function bootstrap() {
       'Set-Cookie',
       'x-skip-refresh',
       'Idempotency-Key',
-      'stripe-signature'
+      'stripe-signature',
+      'X-Origin',
+      'X-Debug-Mode'
     ],
     exposedHeaders: [
       'Set-Cookie',
-      'Authorization'
+      'Authorization',
+      'Access-Control-Allow-Origin',
+      'Access-Control-Allow-Credentials'
     ],
     preflightContinue: false,
     optionsSuccessStatus: 204,
     maxAge: 86400
-  });
-
-  // 🔥 MIDDLEWARE ESPECÍFICO PARA MANEJO DE CREDENCIALES
-  app.use((req: any, res: any, next: any) => {
-    const origin = req.headers.origin;
-    
-    // Para requests normales, establecer headers CORS
-    if (origin && uniqueOrigins.includes(origin)) {
-      res.header('Access-Control-Allow-Origin', origin);
-      res.header('Access-Control-Allow-Credentials', 'true');
-    }
-    
-    // Manejo específico para preflight OPTIONS
-    if (req.method === 'OPTIONS') {
-      res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD');
-      res.header('Access-Control-Allow-Headers', 
-        'Content-Type, Authorization, X-Requested-With, X-Forwarded-For, X-Forwarded-Proto, Cookie, Set-Cookie, x-skip-refresh'
-      );
-      res.header('Access-Control-Max-Age', '86400');
-      return res.status(204).send();
-    }
-    
-    next();
   });
 
   // Validaciones globales
