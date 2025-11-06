@@ -1,4 +1,4 @@
-// src/main.ts
+// src/main.ts - VERSIÓN CORREGIDA
 import 'dotenv/config';
 import 'tsconfig-paths/register';
 import { NestFactory } from '@nestjs/core';
@@ -13,7 +13,31 @@ import * as bodyParser from 'body-parser';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
     rawBody: true,
-    cors: true, // ✅ ACTIVAR CORS NATIVO
+    cors: {
+      origin: [
+        'https://congresoti.com.mx',
+        'https://www.congresoti.com.mx',
+        'http://localhost:3000'
+      ],
+      credentials: true, // ✅ Esto es CRUCIAL
+      methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'],
+      allowedHeaders: [
+        'Content-Type',
+        'Authorization', 
+        'X-Requested-With',
+        'X-Forwarded-For',
+        'X-Forwarded-Proto',
+        'Cookie',
+        'Set-Cookie',
+        'x-skip-refresh',
+        'Idempotency-Key',
+        'stripe-signature'
+      ],
+      exposedHeaders: [
+        'Set-Cookie',
+        'Authorization'
+      ]
+    }
   });
 
   app.use('/payment-stripe/webhook', bodyParser.raw({ type: 'application/json' }));
@@ -32,47 +56,31 @@ async function bootstrap() {
   // Middlewares
   app.use(cookieParser());
 
-  // 🔥 CORS CONFIGURACIÓN COMPLETA Y FUNCIONAL
-  const allowedOrigins = [
-    'http://localhost:3000',
-    'https://congresoti.com.mx',
-    'https://www.congresoti.com.mx',
-    envs.frontendUrl || 'https://congresoti.com.mx'
-  ].filter(Boolean);
+  // ✅ MIDDLEWARE CORS ADICIONAL PARA MANEJO DE PREFLIGHT
+  app.use((req: any, res: any, next: any) => {
+    const allowedOrigins = [
+      'https://congresoti.com.mx',
+      'https://www.congresoti.com.mx',
+      'http://localhost:3000'
+    ];
+    
+    const origin = req.headers.origin;
+    
+    if (origin && allowedOrigins.includes(origin)) {
+      res.header('Access-Control-Allow-Origin', origin); // ✅ ORIGEN ESPECÍFICO, NO *
+    }
+    
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD');
+    res.header('Access-Control-Allow-Headers', 
+      'Content-Type, Authorization, X-Requested-With, X-Forwarded-For, X-Forwarded-Proto, Cookie, Set-Cookie, x-skip-refresh'
+    );
 
-  const uniqueOrigins = [...new Set(allowedOrigins)];
-
-  const logger = new Logger('Bootstrap');
-  logger.log(`🌐 Configurando CORS para orígenes: ${uniqueOrigins.join(', ')}`);
-
-  // ✅ CONFIGURACIÓN CORS SIMPLIFICADA Y ROBUSTA
-  app.enableCors({
-    origin: uniqueOrigins,
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'],
-    allowedHeaders: [
-      'Content-Type',
-      'Authorization', 
-      'X-Requested-With',
-      'X-Forwarded-For',
-      'X-Forwarded-Proto',
-      'Cookie',
-      'Set-Cookie',
-      'x-skip-refresh',
-      'Idempotency-Key',
-      'stripe-signature',
-      'X-Origin',
-      'X-Debug-Mode'
-    ],
-    exposedHeaders: [
-      'Set-Cookie',
-      'Authorization',
-      'Access-Control-Allow-Origin',
-      'Access-Control-Allow-Credentials'
-    ],
-    preflightContinue: false,
-    optionsSuccessStatus: 204,
-    maxAge: 86400
+    if (req.method === 'OPTIONS') {
+      return res.status(200).end();
+    }
+    
+    next();
   });
 
   // Validaciones globales
@@ -140,18 +148,12 @@ async function bootstrap() {
   const port = envs.port || 3001;
   await app.listen(port);
 
+  const logger = new Logger('Bootstrap');
   logger.log(`🚀 Servidor ejecutándose en: http://localhost:${port}`);
-  logger.log(`🌐 CORS configurado para ${uniqueOrigins.length} orígenes`);
+  logger.log(`🌐 CORS configurado para: https://congresoti.com.mx, https://www.congresoti.com.mx, http://localhost:3000`);
   logger.log(`🔐 Modo de autenticación: JWT + Cookies`);
   logger.log(`📚 Documentación API: http://localhost:${port}/api`);
   logger.log(`⚙️  Entorno: ${process.env.NODE_ENV || 'development'}`);
-  
-  if (process.env.NODE_ENV === 'development') {
-    logger.log(`\n💡 TIPS PARA DESARROLLO:`);
-    logger.log(`   • Frontend: http://localhost:3000`);
-    logger.log(`   • API: http://localhost:${port}`);
-    logger.log(`   • CORS configurado para desarrollo local`);
-  }
 }
 
 process.on('unhandledRejection', (reason, promise) => {
