@@ -1,4 +1,4 @@
-// src/main.ts - VERSIÓN CORREGIDA
+// src/main.ts - VERSIÓN COMPLETA CORREGIDA
 import 'dotenv/config';
 import 'tsconfig-paths/register';
 import { NestFactory } from '@nestjs/core';
@@ -19,7 +19,7 @@ async function bootstrap() {
         'https://www.congresoti.com.mx',
         'http://localhost:3000'
       ],
-      credentials: true, // ✅ Esto es CRUCIAL
+      credentials: true,
       methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'],
       allowedHeaders: [
         'Content-Type',
@@ -67,13 +67,40 @@ async function bootstrap() {
     const origin = req.headers.origin;
     
     if (origin && allowedOrigins.includes(origin)) {
-      res.header('Access-Control-Allow-Origin', origin); // ✅ ORIGEN ESPECÍFICO, NO *
+      res.header('Access-Control-Allow-Origin', origin);
     }
     
     res.header('Access-Control-Allow-Credentials', 'true');
     res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD');
     res.header('Access-Control-Allow-Headers', 
       'Content-Type, Authorization, X-Requested-With, X-Forwarded-For, X-Forwarded-Proto, Cookie, Set-Cookie, x-skip-refresh'
+    );
+
+    if (req.method === 'OPTIONS') {
+      return res.status(200).end();
+    }
+    
+    next();
+  });
+
+  // ✅ MIDDLEWARE ESPECÍFICO PARA /auth/refresh
+  app.use('/auth/refresh', (req: any, res: any, next: any) => {
+    const allowedOrigins = [
+      'https://congresoti.com.mx',
+      'https://www.congresoti.com.mx',
+      'http://localhost:3000'
+    ];
+    
+    const origin = req.headers.origin;
+    
+    if (origin && allowedOrigins.includes(origin)) {
+      res.header('Access-Control-Allow-Origin', origin);
+    }
+    
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 
+      'Content-Type, Authorization, X-Requested-With, Cookie, Set-Cookie, x-skip-refresh'
     );
 
     if (req.method === 'OPTIONS') {
