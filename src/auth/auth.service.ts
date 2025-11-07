@@ -358,7 +358,6 @@ export class AuthService {
       try {
         await this.emailService.sendVerificationCode(user.email, verificationCode);
       } catch (mailErr) {
-        console.error('[EmailService] Error enviando verificación:', mailErr);
       }
 
       // 3) Ponente: crear bundle
@@ -366,7 +365,7 @@ export class AuthService {
         try {
           await this.createSpeakerBundleTx(user.user_id, dto);
         } catch (e) {
-          console.error('[AuthService] Error creando bundle ponente:', e);
+          //console.error('[AuthService] Error creando bundle ponente:', e);
           throw new InternalServerErrorException(
             'No se pudo completar el registro de ponente. Intenta de nuevo.',
           );
@@ -400,7 +399,7 @@ export class AuthService {
       }
       if (error instanceof HttpException) throw error;
 
-      console.error('[AuthService] Error durante createUser:', error);
+      //console.error('[AuthService] Error durante createUser:', error);
       throw new InternalServerErrorException('Error al registrar usuario');
     }
   }
@@ -586,7 +585,7 @@ export class AuthService {
         };
         return result;
       } catch (verificationError) {
-        console.error('Error creando token de verificación:', verificationError);
+        //console.error('Error creando token de verificación:', verificationError);
         throw new InternalServerErrorException('Error al generar código de verificación');
       }
     }
@@ -643,7 +642,7 @@ export class AuthService {
           });
         }
       } catch (tokenError) {
-        console.error('Error gestionando tokens:', tokenError);
+        //console.error('Error gestionando tokens:', tokenError);
         // No lanzamos error aquí para no romper el login
       }
 
@@ -680,7 +679,7 @@ export class AuthService {
               'Conexión a la base de datos cerrada. Intenta nuevamente.'
             );
           default:
-            console.error('Error de Prisma en login:', error);
+            //console.error('Error de Prisma en login:', error);
             throw new InternalServerErrorException('Error en el servidor de datos');
         }
       }
@@ -692,7 +691,7 @@ export class AuthService {
       }
 
       if (error instanceof Prisma.PrismaClientUnknownRequestError) {
-        console.error('Error desconocido de Prisma en login:', error);
+        //console.error('Error desconocido de Prisma en login:', error);
         throw new InternalServerErrorException('Error inesperado en el servidor');
       }
 
@@ -704,7 +703,7 @@ export class AuthService {
       }
 
       // Error genérico
-      console.error('Error inesperado en login:', error);
+      //console.error('Error inesperado en login:', error);
       throw new InternalServerErrorException('Error al iniciar sesión');
     }
   }
@@ -714,15 +713,15 @@ export class AuthService {
     const code = String(dto.code || '').trim();
     const tokenType = dto.token_type;
 
-    console.log('🔐 [DEBUG] Verificación solicitada:', { 
+    /* console.log('🔐 [DEBUG] Verificación solicitada:', { 
       email, 
       code, 
       tokenType,
       timestamp: new Date().toISOString()
-    });
+    }); */
 
     if (!email || !/^\d{6}$/.test(code)) {
-      console.log('❌ [DEBUG] Email o código inválido');
+      //console.log('❌ [DEBUG] Email o código inválido');
       throw new UnauthorizedException('Código de verificación inválido o expirado');
     }
 
@@ -732,15 +731,15 @@ export class AuthService {
     });
     
     if (!user) {
-      console.log('❌ [DEBUG] Usuario no encontrado:', email);
+      //console.log('❌ [DEBUG] Usuario no encontrado:', email);
       throw new UnauthorizedException('Código de verificación inválido o expirado');
     }
 
-    console.log('🔍 [DEBUG] Usuario encontrado:', {
+    /* console.log('🔍 [DEBUG] Usuario encontrado:', {
       user_id: Number(user.user_id),
       status: user.status,
       email: user.email
-    });
+    }); */
 
     // ✅ CORREGIDO: Validar y asegurar el tipo de tokenType
     const validTokenType = tokenType === 'reset_password' 
@@ -762,12 +761,12 @@ export class AuthService {
     });
 
     if (!token) {
-      console.log('❌ [DEBUG] Token no encontrado');
+      //console.log('❌ [DEBUG] Token no encontrado');
       await this.incrementVerificationAttemptsByType(user.user_id, validTokenType);
       throw new UnauthorizedException('Código inválido o expirado. Solicita un nuevo código.');
     }
 
-    console.log('✅ [DEBUG] Token válido encontrado:', {
+    /* console.log('✅ [DEBUG] Token válido encontrado:', {
       id: Number(token.verification_token_id),
       type: token.token_type,
       expires: token.expires_at,
@@ -775,17 +774,17 @@ export class AuthService {
         Math.round((token.expires_at.getTime() - Date.now()) / 1000) + ' segundos' : 'N/A',
       attempts: token.attempts,
       created_at: token.created_at
-    });
+    }); */
 
     // ✅ Verificar intentos
     if ((token.attempts ?? 0) >= MAX_ATTEMPTS) {
-      console.log('❌ [DEBUG] Demasiados intentos:', token.attempts);
+      //console.log('❌ [DEBUG] Demasiados intentos:', token.attempts);
       throw new UnauthorizedException('Demasiados intentos. Solicita un nuevo código.');
     }
 
     // ✅ Manejar diferentes tipos de token
     if (validTokenType === 'email_verification') {
-      console.log('✅ [DEBUG] Activando cuenta de usuario:', Number(user.user_id));
+      //console.log('✅ [DEBUG] Activando cuenta de usuario:', Number(user.user_id));
       
       try {
         await this.prisma.$transaction(async (tx) => {
@@ -817,7 +816,7 @@ export class AuthService {
           });
         });
 
-        console.log('🎉 [DEBUG] Usuario activado exitosamente');
+        //console.log('🎉 [DEBUG] Usuario activado exitosamente');
 
         return { 
           message: 'Usuario verificado exitosamente', 
@@ -825,14 +824,14 @@ export class AuthService {
           verified: true 
         };
       } catch (transactionError) {
-        console.error('❌ [DEBUG] Error en transacción:', transactionError);
+        //console.error('❌ [DEBUG] Error en transacción:', transactionError);
         throw new InternalServerErrorException('Error al activar la cuenta');
       }
     }
 
     // Para reset_password, SOLO validar que existe pero NO marcarlo como usado
     if (validTokenType === 'reset_password') {
-      console.log('✅ [DEBUG] Código de reset válido para usuario:', Number(user.user_id));
+      //console.log('✅ [DEBUG] Código de reset válido para usuario:', Number(user.user_id));
       
       // ✅ CORREGIDO: NO marcar el token como usado aquí
       // Solo incrementar el contador de intentos para tracking
@@ -852,7 +851,7 @@ export class AuthService {
       };
     }
 
-    console.log('❌ [DEBUG] Tipo de token no soportado:', validTokenType);
+    //console.log('❌ [DEBUG] Tipo de token no soportado:', validTokenType);
     throw new UnauthorizedException('Tipo de verificación no soportado');
   }
 
@@ -912,7 +911,7 @@ export class AuthService {
     try {
       await this.emailService.sendVerificationCode(user.email, verificationCode);
     } catch (mailErr) {
-      console.error('[EmailService] Error enviando verificación:', mailErr);
+      //console.error('[EmailService] Error enviando verificación:', mailErr);
       throw new InternalServerErrorException('Error al enviar el código de verificación');
     }
 
@@ -937,7 +936,7 @@ export class AuthService {
       });
     }
   } catch (e) {
-    console.error('Error incrementando intentos:', e);
+    //console.error('Error incrementando intentos:', e);
   }
 }
 
@@ -962,10 +961,10 @@ private async incrementVerificationAttemptsByType(
         where: { verification_token_id: latestToken.verification_token_id },
         data: { attempts: { increment: 1 } },
       });
-      console.log(`📈 Intentos incrementados para token tipo: ${tokenType}`);
+      //console.log(`📈 Intentos incrementados para token tipo: ${tokenType}`);
     }
   } catch (e) {
-    console.error('Error incrementando intentos por tipo:', e);
+    //console.error('Error incrementando intentos por tipo:', e);
   }
 }
 
@@ -1007,7 +1006,7 @@ private async incrementVerificationAttemptsByType(
       return { accessToken: newAccessToken, refreshToken: newRefreshToken };
     } catch (error) {
       if (error instanceof UnauthorizedException) throw error;
-      console.error('Error refrescando token:', error);
+      //console.error('Error refrescando token:', error);
       throw new InternalServerErrorException('Error al refrescar el token');
     }
   }
@@ -1032,7 +1031,7 @@ private async incrementVerificationAttemptsByType(
       };
     } catch (error) {
       if (error instanceof NotFoundException) throw error;
-      console.error('Error obteniendo perfil:', error);
+      //console.error('Error obteniendo perfil:', error);
       throw new InternalServerErrorException('Error al obtener el perfil');
     }
   }

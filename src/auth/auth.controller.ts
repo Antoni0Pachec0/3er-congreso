@@ -86,7 +86,7 @@ export class AuthController {
     try {
       return await this.authService.forgotPassword(forgotPasswordDto);
     } catch (error) {
-      console.error('Forgot password error:', error);
+      //console.error('Forgot password error:', error);
       
       // Para errores de validación, mantener el mensaje
       if (error instanceof BadRequestException) {
@@ -150,7 +150,7 @@ export class AuthController {
         throw error;
       }
       
-      console.error('Login controller error:', error);
+      //console.error('Login controller error:', error);
       
       if (error instanceof HttpException) {
         throw error;
@@ -166,13 +166,13 @@ export class AuthController {
   @Throttle({ default: { limit: 5, ttl: 60 * 5 } })
   @Post('verify')
   async verifyCode(@Body() verifyCodeDto: VerifyCodeDto) {
-    console.log('Verification request:', verifyCodeDto); // Debug
+    //console.log('Verification request:', verifyCodeDto); // Debug
     try {
       const result = await this.authService.verifyCode(verifyCodeDto);
-      console.log('Verification result:', result); // Debug
+      //console.log('Verification result:', result); // Debug
       return result;
     } catch (error) {
-      console.error('Verification error:', error); // Debug
+      //console.error('Verification error:', error); // Debug
       throw error;
     }
   }
@@ -207,7 +207,7 @@ export class AuthController {
       try {
         await this.authService.logoutByRefreshToken(refreshToken);
       } catch (e) {
-        console.warn('No se pudo revocar refresh token:', e);
+        //console.warn('No se pudo revocar refresh token:', e);
       }
     }
 
