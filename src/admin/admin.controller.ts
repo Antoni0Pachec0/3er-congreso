@@ -25,6 +25,25 @@ export class AdminController {
   constructor(private readonly adminService: AdminService) {}
 
   // ============================================================
+  // 📌 SEND CERTIFICATES BY EMAIL (MASIVO)
+  // ============================================================
+  @Post('send-certificates')
+  async sendCertificates(
+    @Body() body: any, // intencional: evitar problemas con ValidationPipe
+  ) {
+    const rawIds = body?.ids;
+
+    const ids = Array.isArray(rawIds)
+      ? rawIds
+          .map((v) => Number(v))
+          .filter((v) => Number.isFinite(v) && v > 0)
+      : [];
+
+    // Nunca lanzamos BadRequest aquí; el servicio regresa un resumen
+    return this.adminService.sendCertificates(ids);
+  }
+
+  // ============================================================
   // 📌 FILTER OPTIONS
   // ============================================================
   @Get('filter-options')
@@ -112,11 +131,9 @@ export class AdminController {
   // ============================================================
   @Post('generate-badges')
   async generateBadges(
-    @Body() body: any,
+    @Body() body: GenerateBadgesDto,
     @Res() res: Response,
   ) {
-    console.log('[AdminController] /generate-badges body:', body);
-
     const rawIds = body?.ids;
 
     const ids = Array.isArray(rawIds)
@@ -126,16 +143,14 @@ export class AdminController {
       : [];
 
     if (!ids.length) {
-      console.error('[AdminController] generateBadges – ids inválidos:', rawIds);
       throw new BadRequestException('Debes enviar al menos un ID numérico.');
     }
 
-    // markPrinted: aceptamos boolean o string
     let markPrinted = true;
     if (typeof body?.markPrinted === 'boolean') {
       markPrinted = body.markPrinted;
-    } else if (typeof body?.markPrinted === 'string') {
-      markPrinted = body.markPrinted !== 'false';
+    } else if (typeof (body as any)?.markPrinted === 'string') {
+      markPrinted = (body as any).markPrinted !== 'false';
     }
 
     const pdfBuffer = await this.adminService.generateBadgesPdf(

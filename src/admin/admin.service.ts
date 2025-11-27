@@ -11,6 +11,7 @@ import { Prisma, status_user } from '@prisma/client';
 import PDFDocument = require('pdfkit');
 import * as QRCode from 'qrcode';
 import { join } from 'path';
+import * as nodemailer from 'nodemailer';
 
 import {
   buildMultiTermSearch,
@@ -163,8 +164,6 @@ export class AdminService {
     const take = Math.min(Math.max(pageSize, 1), 200);
     const skip = Math.max((page - 1) * take, 0);
 
-    // admin.service.ts  (solo muestro la parte de listUsers)
-
     const select: Prisma.usersSelect = {
       user_id: true,
       name_user: true,
@@ -179,7 +178,7 @@ export class AdminService {
       group_user: true,
       status: true,
       status_event: true,
-      is_badge_printed: true,      // 👈 NUEVO
+      is_badge_printed: true,
       type_user: { select: { name_type: true } },
       Payment: {
         select: {
@@ -191,7 +190,7 @@ export class AdminService {
         orderBy: { createdAt: 'desc' },
         take: 1,
       },
-    }
+    };
 
     const [total, rows] = await this.prisma.$transaction([
       this.prisma.users.count({ where }),
@@ -200,17 +199,19 @@ export class AdminService {
         select,
         skip,
         take,
-        orderBy:{ user_id:'desc' }
-      })
+        orderBy: { user_id: 'desc' },
+      }),
     ]);
 
-    const data = rows.map(r => {
+    const data = rows.map((r) => {
       const lastPay = r.Payment?.[0];
-      const paid = !!lastPay && (
-        lastPay.paymentStatus?.toLowerCase() === 'paid' ||
-        lastPay.status?.toLowerCase() === 'paid' ||
-        lastPay.paymentIntentStatus?.toLowerCase() === 'succeeded'
-      );
+      const paid =
+        !!lastPay &&
+        (
+          lastPay.paymentStatus?.toLowerCase() === 'paid' ||
+          lastPay.status?.toLowerCase() === 'paid' ||
+          lastPay.paymentIntentStatus?.toLowerCase() === 'succeeded'
+        );
 
       return {
         id: Number(r.user_id),
@@ -226,18 +227,16 @@ export class AdminService {
         isActive: r.status === 'active',
         eventEnabled: !!r.status_event,
         status_event: !!r.status_event,
-        isBadgePrinted: !!r.is_badge_printed,   // 👈 NUEVO
+        isBadgePrinted: !!r.is_badge_printed,
         paymentStatus: r.status_event ? 'Pagado' : (paid ? 'Pagado' : 'No pagado'),
       };
     });
 
-    return { total, page, pageSize:take, data };
-
+    return { total, page, pageSize: take, data };
   }
 
   // ============================================================
   // 📌 ACTIVATION (ONE)
-  // (sin cambios relevantes para gafetes)
   // ============================================================
   async setUserEventActivation(params: {
     actorUserId?: number;
@@ -330,14 +329,13 @@ export class AdminService {
       status_event: updated.status_event,
       paymentStatus: updated.status_event ? 'Pagado' : paid ? 'Pagado' : 'No pagado',
       message: activate
-        ? `Usuario activado ${force ? '(manual)' : '(con pago verificado)'}`
+        ? `Usuario activado ${force ? '(manual)' : '(con pago verificado)'}`  
         : 'Usuario desactivado',
     };
   }
 
   // ============================================================
   // 📌 ACTIVATION (BULK)
-  // (igual que ya tenías, sin cambios de lógica de gafetes)
   // ============================================================
   async setUsersEventActivationBulk(params: {
     actorUserId?: number;
@@ -434,10 +432,385 @@ export class AdminService {
     });
   }
 
-// ============================================================
-// 📌 GENERATE BADGES PDF
-// ============================================================
-async generateBadgesPdf(ids: number[], markPrinted = true): Promise<Buffer> {
+  // ============================================================
+  // 📌 GENERATE BADGES PDF
+  // ============================================================
+  async generateBadgesPdf(ids: number[], markPrinted = true): Promise<Buffer> {
+    const users = await this.prisma.users.findMany({
+      where: { user_id: { in: ids.map((n) => BigInt(n)) } },
+      select: {
+        user_id: true,
+        name_user: true,
+        paternal_surname: true,
+        maternal_surname: true,
+        email: true,
+        matricula: true,
+        type_user: { select: { name_type: true } },
+        grade: true,
+        group_user: true,
+      },
+    });
+
+    if (!users.length) {
+      throw new BadRequestException('No se encontraron usuarios.');
+    }
+
+    const pdfBuffer = await new Promise<Buffer>((resolve, reject) => {
+      const doc = new PDFDocument({ size: 'LETTER', margin: 0 });
+      const chunks: Buffer[] = [];
+
+      doc.on('data', (chunk: Buffer) => chunks.push(chunk));
+      doc.on('end', () => resolve(Buffer.concat(chunks)));
+      doc.on('error', (err: Error) => reject(err));
+
+      const getTemplatePath = (rawRole?: string | null) => {
+        const base = join(process.cwd(), 'public/badges');
+
+        const role = (rawRole || '')
+          .toLowerCase()
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .replace(/\\/g, '/')
+          .trim();
+
+        if (role.includes('docente')) {
+          return join(base, 'teacher.png');
+        }
+        if (role.includes('ponente') || role.includes('tallerista')) {
+          return join(base, 'speaker.png');
+        }
+        if (role.includes('externo')) {
+          return join(base, 'external.png');
+        }
+        if (role.includes('admin')) {
+          return join(base, 'admin.png');
+        }
+        return join(base, 'student.png');
+      };
+
+      const pageWidth = doc.page.width;
+      const marginX = 20;
+      const gapX = 16;
+      const badgeWidth = (pageWidth - 2 * marginX - gapX) / 2;
+
+      const originalRatio = 420 / 320;
+      const badgeHeight = badgeWidth * originalRatio;
+
+      const marginY = 20;
+      const gapY = 20;
+
+      const positions = [
+        { x: marginX, y: marginY },
+        { x: marginX + badgeWidth + gapX, y: marginY },
+        { x: marginX, y: marginY + badgeHeight + gapY },
+        { x: marginX + badgeWidth + gapX, y: marginY + badgeHeight + gapY },
+      ];
+
+      const scaleX = badgeWidth / 320;
+      const scaleY = badgeHeight / 420;
+
+      const textColor = '#001B5E';
+
+      (async () => {
+        for (let i = 0; i < users.length; i++) {
+          const u = users[i];
+
+          const indexInPage = i % 4;
+          if (i > 0 && indexInPage === 0) {
+            doc.addPage();
+          }
+
+          const pos = positions[indexInPage];
+          const roleName = u.type_user?.name_type ?? 'Externo';
+
+          let templatePath = getTemplatePath(roleName);
+          try {
+            doc.image(templatePath, pos.x, pos.y, {
+              width: badgeWidth,
+              height: badgeHeight,
+            });
+          } catch {
+            const fallback = join(process.cwd(), 'public/badges/student.png');
+            doc.image(fallback, pos.x, pos.y, {
+              width: badgeWidth,
+              height: badgeHeight,
+            });
+          }
+
+          const qrDataUrl = await QRCode.toDataURL(u.email || String(u.user_id));
+          const qrBuffer = Buffer.from(qrDataUrl.split(',')[1], 'base64');
+          const qrSize = 80 * scaleX;
+          const qrX = pos.x + (badgeWidth - qrSize) / 2;
+          const qrY = pos.y + 125 * scaleY;
+          doc.image(qrBuffer, qrX, qrY, { width: qrSize, height: qrSize });
+
+          const fullName = [u.name_user, u.paternal_surname, u.maternal_surname]
+            .filter(Boolean)
+            .join(' ');
+
+          doc.fillColor(textColor);
+          doc.font('Helvetica-Bold');
+
+          const nameAreaWidth = badgeWidth - 40;
+          let nameFontSize = 22 * scaleY;
+          if (nameFontSize > 26) nameFontSize = 26;
+
+          doc.fontSize(nameFontSize);
+          let nameWidth = doc.widthOfString(fullName);
+
+          while (nameFontSize > 10 && nameWidth > nameAreaWidth) {
+            nameFontSize -= 0.5;
+            doc.fontSize(nameFontSize);
+            nameWidth = doc.widthOfString(fullName);
+          }
+
+          const nameY = pos.y + 255 * scaleY;
+          doc.text(fullName, pos.x + 20, nameY, {
+            width: nameAreaWidth,
+            align: 'center',
+          });
+
+          const codeY = pos.y + 292 * scaleY;
+          const codeFontSize = 12 * scaleY;
+          doc.font('Helvetica').fontSize(codeFontSize);
+          doc.text(u.matricula ?? String(u.user_id), pos.x, codeY, {
+            width: badgeWidth,
+            align: 'center',
+          });
+
+          const visibleRole = (roleName || 'Externo').replace(/\\/g, '/');
+          const typeY = pos.y + 315 * scaleY;
+          const typeFontSize = 11 * scaleY;
+          doc.fontSize(typeFontSize);
+          doc.text(visibleRole, pos.x, typeY, {
+            width: badgeWidth,
+            align: 'center',
+          });
+        }
+
+        doc.end();
+      })().catch((err) => {
+        try {
+          doc.end();
+        } catch {
+          // ignore
+        }
+        reject(err);
+      });
+    });
+
+    if (markPrinted) {
+      await this.prisma.users.updateMany({
+        where: { user_id: { in: ids.map((n) => BigInt(n)) } },
+        data: { is_badge_printed: true },
+      });
+    }
+
+    return pdfBuffer;
+  }
+
+  // ------------------------------------------------------------
+// 📄 Generar PDF de certificado para un usuario
+//     - A4 horizontal
+//     - Imagen de fondo en public/certificates/certificate-bg.png
+// ------------------------------------------------------------
+private async generateCertificatePdf(user: {
+  user_id: bigint;
+  name_user: string | null;
+  paternal_surname: string | null;
+  maternal_surname: string | null;
+  email: string | null;
+}): Promise<Buffer> {
+  return new Promise<Buffer>((resolve, reject) => {
+    const doc = new PDFDocument({
+      size: 'A4',
+      layout: 'landscape',
+      margin: 0,
+    });
+
+    const chunks: Buffer[] = [];
+    doc.on('data', (chunk: Buffer) => chunks.push(chunk));
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+    doc.on('error', (err: Error) => reject(err));
+
+    const pageWidth = doc.page.width;
+    const pageHeight = doc.page.height;
+
+    const fullName =
+      [
+        user.name_user,
+        user.paternal_surname,
+        user.maternal_surname,
+      ]
+        .filter(Boolean)
+        .join(' ') || 'Participante';
+
+    // Fondo de certificado (PNG exportado de tu diseño)
+    try {
+      const bgPath = join(
+        process.cwd(),
+        'public',
+        'certificates',
+        'certificate-bg.png',
+      );
+
+      doc.image(bgPath, 0, 0, {
+        width: pageWidth,
+        height: pageHeight,
+      });
+    } catch {
+      // si no existe el fondo, simplemente queda blanco
+    }
+
+    // Título
+    const titleY = pageHeight * 0.23;
+    doc
+      .font('Helvetica-Bold')
+      .fontSize(28)
+      .fillColor('#000000')
+      .text('Constancia de participación', 0, titleY, {
+        width: pageWidth,
+        align: 'center',
+      });
+
+    // Subtítulo
+    const subtitleY = pageHeight * 0.33;
+    doc
+      .font('Helvetica')
+      .fontSize(16)
+      .text('Por este medio se hace constar que', 0, subtitleY, {
+        width: pageWidth,
+        align: 'center',
+      });
+
+    // Nombre
+    const nameY = pageHeight * 0.41;
+    doc
+      .font('Helvetica-Bold')
+      .fontSize(30)
+      .text(fullName, 0, nameY, {
+        width: pageWidth,
+        align: 'center',
+      });
+
+    // Texto principal
+    const bodyY = pageHeight * 0.50;
+    doc
+      .font('Helvetica')
+      .fontSize(15)
+      .text(
+        'participó en el 3er. Congreso Internacional 2025, cumpliendo satisfactoriamente con las actividades del evento.',
+        pageWidth * 0.1,
+        bodyY,
+        {
+          width: pageWidth * 0.8,
+          align: 'center',
+        },
+      );
+
+    // Fecha
+    const today = new Date().toLocaleDateString('es-MX', {
+      day: '2-digit',
+      month: 'long',
+      year: 'numeric',
+    });
+
+    const dateY = pageHeight * 0.60;
+    doc
+      .fontSize(12)
+      .text(`Puebla, a ${today}`, 0, dateY, {
+        width: pageWidth,
+        align: 'center',
+      });
+
+    // Firmas: línea izquierda y derecha
+    const lineY = pageHeight * 0.75;
+    const lineWidth = 200;
+
+    const leftCenterX = pageWidth * 0.3;
+    const rightCenterX = pageWidth * 0.7;
+
+    // línea izquierda
+    doc
+      .moveTo(leftCenterX - lineWidth / 2, lineY)
+      .lineTo(leftCenterX + lineWidth / 2, lineY)
+      .stroke();
+
+    doc
+      .font('Helvetica')
+      .fontSize(12)
+      .text(
+        'Coordinación del Congreso',
+        leftCenterX - lineWidth / 2,
+        lineY + 6,
+        {
+          width: lineWidth,
+          align: 'center',
+        },
+      );
+
+    // línea derecha
+    doc
+      .moveTo(rightCenterX - lineWidth / 2, lineY)
+      .lineTo(rightCenterX + lineWidth / 2, lineY)
+      .stroke();
+
+    doc
+      .font('Helvetica')
+      .fontSize(12)
+      .text(
+        'Dirección Académica',
+        rightCenterX - lineWidth / 2,
+        lineY + 6,
+        {
+          width: lineWidth,
+          align: 'center',
+        },
+      );
+
+    doc.end();
+  });
+}
+
+// ------------------------------------------------------------
+// 🔧 MAILER (Gmail con EMAIL_USER / EMAIL_PASSWORD)
+// ------------------------------------------------------------
+private createMailTransporterSafe(): nodemailer.Transporter | null {
+  const user = process.env.EMAIL_USER || process.env.MAIL_USER;
+  const pass = process.env.EMAIL_PASSWORD || process.env.MAIL_PASS;
+
+  if (!user || !pass) {
+    return null;
+  }
+
+  return nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+      user,
+      pass,
+    },
+  });
+}
+
+// ------------------------------------------------------------
+// 📬 Enviar certificados a varios usuarios
+// ------------------------------------------------------------
+async sendCertificates(ids: number[]) {
+  // Si no hay ids, regresamos algo neutro
+  if (!ids || !ids.length) {
+    return {
+      totalSolicitados: 0,
+      enviados: 0,
+      fallidos: 0,
+      resultados: [] as Array<{
+        id: number;
+        email: string | null;
+        ok: boolean;
+        error?: string;
+      }>,
+    };
+  }
+
   const users = await this.prisma.users.findMany({
     where: { user_id: { in: ids.map((n) => BigInt(n)) } },
     select: {
@@ -446,179 +819,129 @@ async generateBadgesPdf(ids: number[], markPrinted = true): Promise<Buffer> {
       paternal_surname: true,
       maternal_surname: true,
       email: true,
-      matricula: true,
-      type_user: { select: { name_type: true } },
-      grade: true,
-      group_user: true,
     },
   });
 
   if (!users.length) {
-    // ÉSTE es el 400 que ves si los ids no matchean
-    throw new BadRequestException('No se encontraron usuarios.');
-  }
-
-  const pdfBuffer = await new Promise<Buffer>((resolve, reject) => {
-    const doc = new PDFDocument({ size: 'LETTER', margin: 0 });
-    const chunks: Buffer[] = [];
-
-    doc.on('data', (chunk: Buffer) => chunks.push(chunk));
-    doc.on('end', () => resolve(Buffer.concat(chunks)));
-    doc.on('error', (err: Error) => reject(err));
-
-    // 👇 NUEVO: mapeo robusto de plantillas por tipo_usuario
-    const getTemplatePath = (rawRole?: string | null) => {
-      const base = join(process.cwd(), 'public/badges');
-
-      const role = (rawRole || '')
-        .toLowerCase()
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .replace(/\\/g, '/')
-        .trim();
-
-      // Los nombres posibles que se usan en tu código:
-      // Estudiante, Docente, Ponente/Tallerista, Externo, Admin
-      if (role.includes('docente')) {
-        return join(base, 'teacher.png');
-      }
-      if (role.includes('ponente') || role.includes('tallerista')) {
-        return join(base, 'speaker.png');
-      }
-      if (role.includes('externo')) {
-        return join(base, 'external.png'); // si NO existe, abajo hacemos fallback
-      }
-      if (role.includes('admin')) {
-        return join(base, 'admin.png');    // o crea admin.png; si no, usa student.png
-      }
-      // default → estudiante
-      return join(base, 'student.png');
+    return {
+      totalSolicitados: ids.length,
+      enviados: 0,
+      fallidos: ids.length,
+      resultados: ids.map((id) => ({
+        id,
+        email: null,
+        ok: false,
+        error: 'No se encontró usuario para este ID.',
+      })),
     };
-
-    // ---- Layout 4 por página (2 columnas x 2 filas) ----
-    const pageWidth = doc.page.width;
-    const marginX = 20;
-    const gapX = 16;
-    const badgeWidth = (pageWidth - 2 * marginX - gapX) / 2;
-
-    const originalRatio = 420 / 320;
-    const badgeHeight = badgeWidth * originalRatio;
-
-    const marginY = 20;
-    const gapY = 20;
-
-    const positions = [
-      { x: marginX, y: marginY },
-      { x: marginX + badgeWidth + gapX, y: marginY },
-      { x: marginX, y: marginY + badgeHeight + gapY },
-      { x: marginX + badgeWidth + gapX, y: marginY + badgeHeight + gapY },
-    ];
-
-    const scaleX = badgeWidth / 320;
-    const scaleY = badgeHeight / 420;
-
-    const textColor = '#001B5E';
-
-    (async () => {
-      for (let i = 0; i < users.length; i++) {
-        const u = users[i];
-
-        const indexInPage = i % 4;
-        if (i > 0 && indexInPage === 0) {
-          doc.addPage();
-        }
-
-        const pos = positions[indexInPage];
-        const roleName = u.type_user?.name_type ?? 'Externo';
-
-        // ---------- Fondo según tipo_usuario ----------
-        let templatePath = getTemplatePath(roleName);
-        try {
-          doc.image(templatePath, pos.x, pos.y, {
-            width: badgeWidth,
-            height: badgeHeight,
-          });
-        } catch (e) {
-          // Si falta el PNG de ese rol, usamos siempre el de estudiante
-          const fallback = join(process.cwd(), 'public/badges/student.png');
-          doc.image(fallback, pos.x, pos.y, {
-            width: badgeWidth,
-            height: badgeHeight,
-          });
-        }
-
-        // ---------- QR centrado ----------
-        const qrDataUrl = await QRCode.toDataURL(u.email || String(u.user_id));
-        const qrBuffer = Buffer.from(qrDataUrl.split(',')[1], 'base64');
-        const qrSize = 80 * scaleX;
-        const qrX = pos.x + (badgeWidth - qrSize) / 2;
-        const qrY = pos.y + 125 * scaleY;
-        doc.image(qrBuffer, qrX, qrY, { width: qrSize, height: qrSize });
-
-        // ---------- Nombre (una línea, autoshrink) ----------
-        const fullName = [u.name_user, u.paternal_surname, u.maternal_surname]
-          .filter(Boolean)
-          .join(' ');
-
-        doc.fillColor(textColor);
-        doc.font('Helvetica-Bold');
-
-        const nameAreaWidth = badgeWidth - 40;
-        let nameFontSize = 22 * scaleY;
-        if (nameFontSize > 26) nameFontSize = 26;
-
-        doc.fontSize(nameFontSize);
-        let nameWidth = doc.widthOfString(fullName);
-
-        while (nameFontSize > 10 && nameWidth > nameAreaWidth) {
-          nameFontSize -= 0.5;
-          doc.fontSize(nameFontSize);
-          nameWidth = doc.widthOfString(fullName);
-        }
-
-        const nameY = pos.y + 255 * scaleY;
-        doc.text(fullName, pos.x + 20, nameY, {
-          width: nameAreaWidth,
-          align: 'center',
-        });
-
-        // ---------- Matrícula ----------
-        const codeY = pos.y + 292 * scaleY;
-        const codeFontSize = 12 * scaleY;
-        doc.font('Helvetica').fontSize(codeFontSize);
-        doc.text(u.matricula ?? String(u.user_id), pos.x, codeY, {
-          width: badgeWidth,
-          align: 'center',
-        });
-
-        // ---------- Tipo visible ----------
-        const visibleRole = (roleName || 'Externo').replace(/\\/g, '/');
-        const typeY = pos.y + 315 * scaleY;
-        const typeFontSize = 11 * scaleY;
-        doc.fontSize(typeFontSize);
-        doc.text(visibleRole, pos.x, typeY, {
-          width: badgeWidth,
-          align: 'center',
-        });
-      }
-
-      doc.end();
-    })().catch((err) => {
-      try {
-        doc.end();
-      } catch (_) {}
-      reject(err);
-    });
-  });
-
-  if (markPrinted) {
-    await this.prisma.users.updateMany({
-      where: { user_id: { in: ids.map((n) => BigInt(n)) } },
-      data: { is_badge_printed: true },
-    });
   }
 
-  return pdfBuffer;
+  const transporter = this.createMailTransporterSafe();
+
+  if (!transporter) {
+    return {
+      totalSolicitados: ids.length,
+      enviados: 0,
+      fallidos: ids.length,
+      resultados: ids.map((id) => ({
+        id,
+        email: null,
+        ok: false,
+        error:
+          'Config de correo no válida en el servidor (revisa EMAIL_USER / EMAIL_PASSWORD).',
+      })),
+    };
+  }
+
+  const resultados: Array<{
+    id: number;
+    email: string | null;
+    ok: boolean;
+    error?: string;
+  }> = [];
+
+  for (const u of users) {
+    const id = Number(u.user_id);
+    const fullName =
+      [u.name_user, u.paternal_surname, u.maternal_surname].filter(Boolean).join(' ') ||
+      'Participante';
+
+    if (!u.email) {
+      resultados.push({
+        id,
+        email: null,
+        ok: false,
+        error: 'Usuario sin email registrado.',
+      });
+      continue;
+    }
+
+    try {
+      const pdfBuffer = await this.generateCertificatePdf(u);
+
+      await transporter.sendMail({
+        from: `"Congreso 2025" <${process.env.EMAIL_USER || process.env.MAIL_USER}>`,
+        to: u.email,
+        subject: 'Constancia de participación - 3er. Congreso Internacional 2025',
+        text: `Hola ${fullName},
+
+Adjuntamos tu constancia de participación en el 3er. Congreso Internacional 2025.
+
+Saludos cordiales.`,
+        html: `
+          <p>Hola <strong>${fullName}</strong>,</p>
+          <p>Adjuntamos tu constancia de participación en el <strong>3er. Congreso Internacional 2025</strong>.</p>
+          <p>Saludos cordiales.</p>
+        `,
+        attachments: [
+          {
+            filename: 'constancia.pdf',
+            content: pdfBuffer,
+            contentType: 'application/pdf',
+          },
+        ],
+      });
+
+      resultados.push({
+        id,
+        email: u.email,
+        ok: true,
+      });
+    } catch (err: any) {
+      resultados.push({
+        id,
+        email: u.email,
+        ok: false,
+        error: err?.message || 'Error desconocido al enviar correo.',
+      });
+    }
+  }
+
+  const enviados = resultados.filter((r) => r.ok).length;
+  const fallidos = resultados.filter((r) => !r.ok).length;
+
+  // 🔒 Cambiar status a "suspended" SOLO de los que se enviaron bien
+  const enviadosIds = resultados
+    .filter((r) => r.ok)
+    .map((r) => BigInt(r.id));
+
+  if (enviadosIds.length) {
+    try {
+      await this.prisma.users.updateMany({
+        where: { user_id: { in: enviadosIds } },
+        data: { status: 'suspended' as status_user },
+      });
+    } catch {
+      // si falla el update, no rompemos la respuesta del envío
+    }
+  }
+
+  return {
+    totalSolicitados: ids.length,
+    enviados,
+    fallidos,
+    resultados,
+  };
 }
 
 }

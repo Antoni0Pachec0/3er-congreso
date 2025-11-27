@@ -136,37 +136,38 @@ model url_red_social {
 }
 
 model users {
-  user_id                                     BigInt               @id @default(autoincrement())
-  name_user                                   String?              @db.VarChar(100)
-  paternal_surname                            String               @db.VarChar(100)
-  maternal_surname                            String               @db.VarChar(100)
-  phone                                       String               @db.VarChar(20)
-  emergency_phone                             String?              @db.VarChar(20)
-  email                                       String               @unique(map: "unique_email") @db.VarChar(155)
-  password_user                               String               @db.VarChar(255)
-  provenance                                  String?              @db.VarChar(255)
-  educational_program                         String?              @db.VarChar(155)
-  grade                                       String?              @db.Char(2)
-  group_user                                  String?              @db.Char(1)
+  user_id                                     BigInt                    @id @default(autoincrement())
+  name_user                                   String?                   @db.VarChar(100)
+  paternal_surname                            String                    @db.VarChar(100)
+  maternal_surname                            String                    @db.VarChar(100)
+  phone                                       String                    @db.VarChar(20)
+  emergency_phone                             String?                   @db.VarChar(20)
+  email                                       String                    @unique(map: "unique_email") @db.VarChar(155)
+  password_user                               String                    @db.VarChar(255)
+  provenance                                  String?                   @db.VarChar(255)
+  educational_program                         String?                   @db.VarChar(155)
+  grade                                       String?                   @db.Char(2)
+  group_user                                  String?                   @db.Char(1)
   size_user                                   size_enum?
   kit_id                                      BigInt?
   workshop_id                                 BigInt?
   type_user_id                                BigInt?
-  status                                      status_user?         @default(inactive)
-  status_event                                Boolean?             @default(false)
-  matricula                                   String?              @db.VarChar(8)
-  is_badge_printed                            Boolean?             @default(false)
+  status                                      status_user?              @default(inactive)
+  status_event                                Boolean?                  @default(false)
+  matricula                                   String?                   @db.VarChar(8)
+  is_badge_printed                            Boolean?                  @default(false)
   Payment                                     Payment[]
   attendance                                  attendance[]
   game_score                                  game_score[]
+  movimientos_financieros                     movimientos_financieros[]
   schedule                                    schedule[]
   speaker_profiles                            speaker_profiles[]
   url_red_social                              url_red_social[]
-  type_user                                   type_user?           @relation(fields: [type_user_id], references: [type_user_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_type_user")
-  workshop_users_workshop_idToworkshop        workshop?            @relation("users_workshop_idToworkshop", fields: [workshop_id], references: [workshop_id], onDelete: Cascade, map: "fk_workshop_id")
-  kit                                         kit?                 @relation(fields: [kit_id], references: [kit_id], onDelete: NoAction, onUpdate: NoAction)
+  type_user                                   type_user?                @relation(fields: [type_user_id], references: [type_user_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_type_user")
+  workshop_users_workshop_idToworkshop        workshop?                 @relation("users_workshop_idToworkshop", fields: [workshop_id], references: [workshop_id], onDelete: Cascade, map: "fk_workshop_id")
+  kit                                         kit?                      @relation(fields: [kit_id], references: [kit_id], onDelete: NoAction, onUpdate: NoAction)
   verification_token                          verification_token[]
-  workshop_workshop_instructor_user_idTousers workshop[]           @relation("workshop_instructor_user_idTousers")
+  workshop_workshop_instructor_user_idTousers workshop[]                @relation("workshop_instructor_user_idTousers")
 }
 
 model verification_token {
@@ -202,6 +203,29 @@ model workshop {
   schedule                                 schedule[]
   users_users_workshop_idToworkshop        users[]      @relation("users_workshop_idToworkshop")
   users_workshop_instructor_user_idTousers users?       @relation("workshop_instructor_user_idTousers", fields: [instructor_user_id], references: [user_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_instructor_user_id")
+}
+
+model categoria_movimiento {
+  id_categoria            BigInt                    @id @default(autoincrement())
+  nombre                  String                    @db.VarChar(100)
+  descripcion             String?
+  movimientos_financieros movimientos_financieros[]
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model movimientos_financieros {
+  id_movimiento        BigInt               @id @default(autoincrement())
+  tipo                 String               @db.VarChar(10)
+  fecha                DateTime             @default(now()) @db.Timestamptz(6)
+  monto                Decimal              @db.Decimal(12, 2)
+  descripcion          String?
+  medio_pago           String               @db.VarChar(255)
+  id_usuario           BigInt?
+  creado_en            DateTime             @default(now()) @db.Timestamptz(6)
+  actualizado_en       DateTime             @default(now()) @db.Timestamptz(6)
+  id_categoria         BigInt
+  categoria_movimiento categoria_movimiento @relation(fields: [id_categoria], references: [id_categoria], onDelete: NoAction, onUpdate: NoAction)
+  users                users?               @relation(fields: [id_usuario], references: [user_id], onDelete: NoAction, onUpdate: NoAction)
 }
 
 enum day_week_enum {
