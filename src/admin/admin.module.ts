@@ -1,19 +1,14 @@
-// src/admin/admin.module.ts
 import { Module } from '@nestjs/common';
-import { PrismaModule } from '@prisma/prisma.module';
+import { PrismaService } from '@prisma/prisma.service';
 
 import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';
 
-import { AttendanceController } from './attendance.controller';
-import { AttendanceService } from './attendance.service';
-
-import { RolesGuard } from '@/common/guards/roles.guard';
+import { FinanceController } from './finance.controller';
+import { FinanceService } from './finance.service';
 
 @Module({
-  imports: [PrismaModule],
-  controllers: [AdminController, AttendanceController],
-  providers: [AdminService, AttendanceService, RolesGuard],
-  exports: [AdminService],
+  controllers: [AdminController, FinanceController],
+  providers: [AdminService, FinanceService, PrismaService],
 })
 export class AdminModule {}
