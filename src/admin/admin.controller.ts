@@ -127,23 +127,31 @@ export class AdminController {
   }
 
   // ============================================================
+  // ============================================================
   // 📌 GENERATE BADGES PDF (MASIVO)
   // ============================================================
   @Post('generate-badges')
   async generateBadges(
-    @Body() body: GenerateBadgesDto,
+    @Body() body: any,     // 👈 IMPORTANTE: usar any para saltarse el ValidationPipe global
     @Res() res: Response,
   ) {
-    const rawIds = body?.ids;
+    let rawIds = body?.ids;
 
-    const ids = Array.isArray(rawIds)
-      ? rawIds
-          .map((v) => Number(v))
-          .filter((v) => Number.isFinite(v) && v > 0)
-      : [];
+    // Asegurarnos siempre de tener un array
+    if (!Array.isArray(rawIds)) {
+      rawIds = [];
+    }
+
+    // Normalizar y limpiar: convertir a número, quitar basura
+    const ids = rawIds
+      .map((v) => Number(String(v ?? '').trim()))
+      .filter((v) => Number.isFinite(v) && v > 0);
+
+    console.log('📩 rawIds (body.ids):', rawIds);
+    console.log('📌 ids procesados (números válidos):', ids);
 
     if (!ids.length) {
-      throw new BadRequestException('Debes enviar al menos un ID numérico.');
+      throw new BadRequestException('Debes enviar al menos un ID numérico válido.');
     }
 
     let markPrinted = true;
@@ -167,4 +175,6 @@ export class AdminController {
 
     return res.send(pdfBuffer);
   }
+
+
 }

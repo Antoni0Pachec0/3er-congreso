@@ -436,178 +436,198 @@ export class AdminService {
   // 📌 GENERATE BADGES PDF
   // ============================================================
   async generateBadgesPdf(ids: number[], markPrinted = true): Promise<Buffer> {
-    const users = await this.prisma.users.findMany({
-      where: { user_id: { in: ids.map((n) => BigInt(n)) } },
-      select: {
-        user_id: true,
-        name_user: true,
-        paternal_surname: true,
-        maternal_surname: true,
-        email: true,
-        matricula: true,
-        type_user: { select: { name_type: true } },
-        grade: true,
-        group_user: true,
-      },
-    });
+  // ============================================================
+  // 🔍 1. Validación inicial
+  // ============================================================
 
-    if (!users.length) {
-      throw new BadRequestException('No se encontraron usuarios.');
-    }
+  console.log("📩 IDS RECIBIDOS EN SERVICE:", ids);
 
-    const pdfBuffer = await new Promise<Buffer>((resolve, reject) => {
-      const doc = new PDFDocument({ size: 'LETTER', margin: 0 });
-      const chunks: Buffer[] = [];
+  // Asegurar que realmente tengamos números
+  const cleanIds = (ids ?? [])
+    .map((v) => Number(String(v).trim()))
+    .filter((v) => Number.isFinite(v) && v > 0);
 
-      doc.on('data', (chunk: Buffer) => chunks.push(chunk));
-      doc.on('end', () => resolve(Buffer.concat(chunks)));
-      doc.on('error', (err: Error) => reject(err));
+  console.log("📌 IDS LIMPIOS:", cleanIds);
 
-      const getTemplatePath = (rawRole?: string | null) => {
-        const base = join(process.cwd(), 'public/badges');
-
-        const role = (rawRole || '')
-          .toLowerCase()
-          .normalize('NFD')
-          .replace(/[\u0300-\u036f]/g, '')
-          .replace(/\\/g, '/')
-          .trim();
-
-        if (role.includes('docente')) {
-          return join(base, 'teacher.png');
-        }
-        if (role.includes('ponente') || role.includes('tallerista')) {
-          return join(base, 'speaker.png');
-        }
-        if (role.includes('externo')) {
-          return join(base, 'external.png');
-        }
-        if (role.includes('admin')) {
-          return join(base, 'admin.png');
-        }
-        return join(base, 'student.png');
-      };
-
-      const pageWidth = doc.page.width;
-      const marginX = 20;
-      const gapX = 16;
-      const badgeWidth = (pageWidth - 2 * marginX - gapX) / 2;
-
-      const originalRatio = 420 / 320;
-      const badgeHeight = badgeWidth * originalRatio;
-
-      const marginY = 20;
-      const gapY = 20;
-
-      const positions = [
-        { x: marginX, y: marginY },
-        { x: marginX + badgeWidth + gapX, y: marginY },
-        { x: marginX, y: marginY + badgeHeight + gapY },
-        { x: marginX + badgeWidth + gapX, y: marginY + badgeHeight + gapY },
-      ];
-
-      const scaleX = badgeWidth / 320;
-      const scaleY = badgeHeight / 420;
-
-      const textColor = '#001B5E';
-
-      (async () => {
-        for (let i = 0; i < users.length; i++) {
-          const u = users[i];
-
-          const indexInPage = i % 4;
-          if (i > 0 && indexInPage === 0) {
-            doc.addPage();
-          }
-
-          const pos = positions[indexInPage];
-          const roleName = u.type_user?.name_type ?? 'Externo';
-
-          let templatePath = getTemplatePath(roleName);
-          try {
-            doc.image(templatePath, pos.x, pos.y, {
-              width: badgeWidth,
-              height: badgeHeight,
-            });
-          } catch {
-            const fallback = join(process.cwd(), 'public/badges/student.png');
-            doc.image(fallback, pos.x, pos.y, {
-              width: badgeWidth,
-              height: badgeHeight,
-            });
-          }
-
-          const qrDataUrl = await QRCode.toDataURL(u.email || String(u.user_id));
-          const qrBuffer = Buffer.from(qrDataUrl.split(',')[1], 'base64');
-          const qrSize = 80 * scaleX;
-          const qrX = pos.x + (badgeWidth - qrSize) / 2;
-          const qrY = pos.y + 125 * scaleY;
-          doc.image(qrBuffer, qrX, qrY, { width: qrSize, height: qrSize });
-
-          const fullName = [u.name_user, u.paternal_surname, u.maternal_surname]
-            .filter(Boolean)
-            .join(' ');
-
-          doc.fillColor(textColor);
-          doc.font('Helvetica-Bold');
-
-          const nameAreaWidth = badgeWidth - 40;
-          let nameFontSize = 22 * scaleY;
-          if (nameFontSize > 26) nameFontSize = 26;
-
-          doc.fontSize(nameFontSize);
-          let nameWidth = doc.widthOfString(fullName);
-
-          while (nameFontSize > 10 && nameWidth > nameAreaWidth) {
-            nameFontSize -= 0.5;
-            doc.fontSize(nameFontSize);
-            nameWidth = doc.widthOfString(fullName);
-          }
-
-          const nameY = pos.y + 255 * scaleY;
-          doc.text(fullName, pos.x + 20, nameY, {
-            width: nameAreaWidth,
-            align: 'center',
-          });
-
-          const codeY = pos.y + 292 * scaleY;
-          const codeFontSize = 12 * scaleY;
-          doc.font('Helvetica').fontSize(codeFontSize);
-          doc.text(u.matricula ?? String(u.user_id), pos.x, codeY, {
-            width: badgeWidth,
-            align: 'center',
-          });
-
-          const visibleRole = (roleName || 'Externo').replace(/\\/g, '/');
-          const typeY = pos.y + 315 * scaleY;
-          const typeFontSize = 11 * scaleY;
-          doc.fontSize(typeFontSize);
-          doc.text(visibleRole, pos.x, typeY, {
-            width: badgeWidth,
-            align: 'center',
-          });
-        }
-
-        doc.end();
-      })().catch((err) => {
-        try {
-          doc.end();
-        } catch {
-          // ignore
-        }
-        reject(err);
-      });
-    });
-
-    if (markPrinted) {
-      await this.prisma.users.updateMany({
-        where: { user_id: { in: ids.map((n) => BigInt(n)) } },
-        data: { is_badge_printed: true },
-      });
-    }
-
-    return pdfBuffer;
+  if (!cleanIds.length) {
+    throw new BadRequestException("No se enviaron IDs válidos.");
   }
+
+  // Convertir a BigInt solo cuando ya son números válidos
+  const idsBigInt = cleanIds.map((n) => BigInt(n));
+
+  // ============================================================
+  // 🔍 2. Obtener usuarios
+  // ============================================================
+  const users = await this.prisma.users.findMany({
+    where: { user_id: { in: idsBigInt } },
+    select: {
+      user_id: true,
+      name_user: true,
+      paternal_surname: true,
+      maternal_surname: true,
+      email: true,
+      matricula: true,
+      type_user: { select: { name_type: true } },
+      grade: true,
+      group_user: true,
+    },
+  });
+
+  if (!users.length) {
+    throw new BadRequestException('No se encontraron usuarios con esos IDs.');
+  }
+
+  // ============================================================
+  // 🔍 3. Generar PDF
+  // ============================================================
+  const pdfBuffer = await new Promise<Buffer>((resolve, reject) => {
+    const doc = new PDFDocument({ size: 'LETTER', margin: 0 });
+    const chunks: Buffer[] = [];
+
+    doc.on('data', (chunk: Buffer) => chunks.push(chunk));
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+    doc.on('error', (err: Error) => reject(err));
+
+    const getTemplatePath = (rawRole?: string | null) => {
+      const base = join(process.cwd(), 'public/badges');
+
+      const role = (rawRole || '')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/\\/g, '/')
+        .trim();
+
+      if (role.includes('docente')) return join(base, 'teacher.png');
+      if (role.includes('ponente') || role.includes('tallerista'))
+        return join(base, 'speaker.png');
+      if (role.includes('externo')) return join(base, 'external.png');
+      if (role.includes('admin')) return join(base, 'admin.png');
+      
+      return join(base, 'student.png');
+    };
+
+    const pageWidth = doc.page.width;
+    const marginX = 20;
+    const gapX = 16;
+    const badgeWidth = (pageWidth - 2 * marginX - gapX) / 2;
+
+    const originalRatio = 420 / 320;
+    const badgeHeight = badgeWidth * originalRatio;
+
+    const marginY = 20;
+    const gapY = 20;
+
+    const positions = [
+      { x: marginX, y: marginY },
+      { x: marginX + badgeWidth + gapX, y: marginY },
+      { x: marginX, y: marginY + badgeHeight + gapY },
+      { x: marginX + badgeWidth + gapX, y: marginY + badgeHeight + gapY },
+    ];
+
+    const scaleX = badgeWidth / 320;
+    const scaleY = badgeHeight / 420;
+
+    const textColor = '#001B5E';
+
+    (async () => {
+      for (let i = 0; i < users.length; i++) {
+        const u = users[i];
+
+        const indexInPage = i % 4;
+        if (i > 0 && indexInPage === 0) {
+          doc.addPage();
+        }
+
+        const pos = positions[indexInPage];
+        const roleName = u.type_user?.name_type ?? 'Externo';
+
+        let templatePath = getTemplatePath(roleName);
+        try {
+          doc.image(templatePath, pos.x, pos.y, {
+            width: badgeWidth,
+            height: badgeHeight,
+          });
+        } catch {
+          const fallback = join(process.cwd(), 'public/badges/student.png');
+          doc.image(fallback, pos.x, pos.y, {
+            width: badgeWidth,
+            height: badgeHeight,
+          });
+        }
+
+        const qrDataUrl = await QRCode.toDataURL(u.email || String(u.user_id));
+        const qrBuffer = Buffer.from(qrDataUrl.split(',')[1], 'base64');
+        const qrSize = 80 * scaleX;
+        const qrX = pos.x + (badgeWidth - qrSize) / 2;
+        const qrY = pos.y + 125 * scaleY;
+        doc.image(qrBuffer, qrX, qrY, { width: qrSize, height: qrSize });
+
+        const fullName = [u.name_user, u.paternal_surname, u.maternal_surname]
+          .filter(Boolean)
+          .join(' ');
+
+        doc.fillColor(textColor).font('Helvetica-Bold');
+
+        const nameAreaWidth = badgeWidth - 40;
+        let nameFontSize = 22 * scaleY;
+        if (nameFontSize > 26) nameFontSize = 26;
+
+        doc.fontSize(nameFontSize);
+        let nameWidth = doc.widthOfString(fullName);
+
+        while (nameFontSize > 10 && nameWidth > nameAreaWidth) {
+          nameFontSize -= 0.5;
+          doc.fontSize(nameFontSize);
+          nameWidth = doc.widthOfString(fullName);
+        }
+
+        const nameY = pos.y + 255 * scaleY;
+        doc.text(fullName, pos.x + 20, nameY, {
+          width: nameAreaWidth,
+          align: 'center',
+        });
+
+        const codeY = pos.y + 292 * scaleY;
+        const codeFontSize = 12 * scaleY;
+        doc.font('Helvetica').fontSize(codeFontSize);
+        doc.text(u.matricula ?? String(u.user_id), pos.x, codeY, {
+          width: badgeWidth,
+          align: 'center',
+        });
+
+        const visibleRole = (roleName || 'Externo').replace(/\\/g, '/');
+        const typeY = pos.y + 315 * scaleY;
+        const typeFontSize = 11 * scaleY;
+        doc.fontSize(typeFontSize);
+        doc.text(visibleRole, pos.x, typeY, {
+          width: badgeWidth,
+          align: 'center',
+        });
+      }
+
+      doc.end();
+    })().catch((err) => {
+      try {
+        doc.end();
+      } catch {}
+      reject(err);
+    });
+  });
+
+  // ============================================================
+  // 🔍 4. Marcar como impresos
+  // ============================================================
+  if (markPrinted) {
+    await this.prisma.users.updateMany({
+      where: { user_id: { in: idsBigInt } },
+      data: { is_badge_printed: true },
+    });
+  }
+
+  return pdfBuffer;
+}
 
   // ------------------------------------------------------------
 // 📄 Generar PDF de certificado para un usuario

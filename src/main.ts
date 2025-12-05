@@ -1,6 +1,7 @@
-// src/main.ts - VERSIÓN COMPLETA CORREGIDA
+// src/main.ts - VERSIÓN COMPLETA Y CORREGIDA
 import 'dotenv/config';
 import 'tsconfig-paths/register';
+
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '@/app.module';
 import { Logger, ValidationPipe, BadRequestException } from '@nestjs/common';
@@ -17,34 +18,33 @@ async function bootstrap() {
       origin: [
         'https://congresoti.com.mx',
         'https://www.congresoti.com.mx',
-        'http://localhost:3000'
+        'http://localhost:3000',
       ],
       credentials: true,
-      methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'],
+      methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
       allowedHeaders: [
         'Content-Type',
-        'Authorization', 
+        'Authorization',
         'X-Requested-With',
-        'X-Forwarded-For',
-        'X-Forwarded-Proto',
-        'Cookie',
-        'Set-Cookie',
         'x-skip-refresh',
+        'stripe-signature',
         'Idempotency-Key',
-        'stripe-signature'
       ],
-      exposedHeaders: [
-        'Set-Cookie',
-        'Authorization'
-      ]
-    }
+      exposedHeaders: ['Set-Cookie', 'Authorization'],
+    },
   });
 
-  app.use('/payment-stripe/webhook', bodyParser.raw({ type: 'application/json' }));
+  // Webhook de Stripe: necesita el raw body, NO JSON parseado antes
+  app.use(
+    '/payment-stripe/webhook',
+    bodyParser.raw({ type: 'application/json' }),
+  );
+
+  // Body parser normal para el resto de rutas
   app.use(bodyParser.json({ limit: '1mb' }));
   app.use(bodyParser.urlencoded({ extended: true, limit: '1mb' }));
 
-  // Configuración de proxy para producción
+  // Trust proxy (útil si estás detrás de Nginx / Cloudflare en producción)
   if (process.env.NODE_ENV === 'production') {
     const httpAdapter = app.getHttpAdapter();
     const instance = httpAdapter.getInstance?.();
@@ -53,85 +53,42 @@ async function bootstrap() {
     }
   }
 
-  // Middlewares
+  // Cookies (para JWT HttpOnly)
   app.use(cookieParser());
 
-  // ✅ MIDDLEWARE CORS ADICIONAL PARA MANEJO DE PREFLIGHT
-  app.use((req: any, res: any, next: any) => {
-    const allowedOrigins = [
-      'https://congresoti.com.mx',
-      'https://www.congresoti.com.mx',
-      'http://localhost:3000'
-    ];
-    
-    const origin = req.headers.origin;
-    
-    if (origin && allowedOrigins.includes(origin)) {
-      res.header('Access-Control-Allow-Origin', origin);
-    }
-    
-    res.header('Access-Control-Allow-Credentials', 'true');
-    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD');
-    res.header('Access-Control-Allow-Headers', 
-      'Content-Type, Authorization, X-Requested-With, X-Forwarded-For, X-Forwarded-Proto, Cookie, Set-Cookie, x-skip-refresh'
-    );
-
-    if (req.method === 'OPTIONS') {
-      return res.status(200).end();
-    }
-    
-    next();
-  });
-
-  // ✅ MIDDLEWARE ESPECÍFICO PARA /auth/refresh
-  app.use('/auth/refresh', (req: any, res: any, next: any) => {
-    const allowedOrigins = [
-      'https://congresoti.com.mx',
-      'https://www.congresoti.com.mx',
-      'http://localhost:3000'
-    ];
-    
-    const origin = req.headers.origin;
-    
-    if (origin && allowedOrigins.includes(origin)) {
-      res.header('Access-Control-Allow-Origin', origin);
-    }
-    
-    res.header('Access-Control-Allow-Credentials', 'true');
-    res.header('Access-Control-Allow-Methods', 'POST, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 
-      'Content-Type, Authorization, X-Requested-With, Cookie, Set-Cookie, x-skip-refresh'
-    );
-
-    if (req.method === 'OPTIONS') {
-      return res.status(200).end();
-    }
-    
-    next();
-  });
+  // ❗ IMPORTANTE:
+  // NO hay middlewares CORS manuales extra.
+  // Todo el CORS se maneja con la opción `cors` de NestFactory.create.
 
   // Validaciones globales
-  app.useGlobalPipes(new ValidationPipe({
-    whitelist: true,
-    transform: true,
-    forbidNonWhitelisted: true,
-    transformOptions: { enableImplicitConversion: true },
-    exceptionFactory: (errors) => {
-      const formatted = errors.map(e => ({
-        property: e.property,
-        constraints: e.constraints,
-      }));
-      return new BadRequestException({ errors: formatted, message: 'Datos inválidos' });
-    },
-  }));
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      transform: true,
+      forbidNonWhitelisted: true,
+      transformOptions: { enableImplicitConversion: true },
+      exceptionFactory: (errors) => {
+        const formatted = errors.map((e) => ({
+          property: e.property,
+          constraints: e.constraints,
+        }));
+        return new BadRequestException({
+          errors: formatted,
+          message: 'Datos inválidos',
+        });
+      },
+    }),
+  );
 
-  // Filtro global
+  // Filtro global para formatear excepciones HTTP
   app.useGlobalFilters(new HttpExceptionFilter());
 
-  // Swagger
+  // Swagger / documentación
   const swaggerConfig = new DocumentBuilder()
     .setTitle('3er Congreso Internacional TI - API')
-    .setDescription('API para el 3er Congreso Internacional de Tecnologías de la Información')
+    .setDescription(
+      'API para el 3er Congreso Internacional de Tecnologías de la Información',
+    )
     .setVersion('1.0')
     .addTag('auth', 'Autenticación y autorización')
     .addTag('users', 'Gestión de usuarios')
@@ -156,9 +113,9 @@ async function bootstrap() {
         type: 'apiKey',
         in: 'cookie',
         name: 'access_token',
-        description: 'Cookie de autenticación JWT'
+        description: 'Cookie de autenticación JWT',
       },
-      'cookie-auth'
+      'cookie-auth',
     )
     .build();
 
@@ -177,12 +134,13 @@ async function bootstrap() {
 
   const logger = new Logger('Bootstrap');
   logger.log(`🚀 Servidor ejecutándose en: http://localhost:${port}`);
-  logger.log(`🌐 CORS configurado para: https://congresoti.com.mx, https://www.congresoti.com.mx, http://localhost:3000`);
-  logger.log(`🔐 Modo de autenticación: JWT + Cookies`);
+  logger.log('🌐 CORS configurado correctamente');
+  logger.log('🔐 Autenticación: JWT + Cookies HttpOnly');
   logger.log(`📚 Documentación API: http://localhost:${port}/api`);
-  logger.log(`⚙️  Entorno: ${process.env.NODE_ENV || 'development'}`);
+  logger.log(`⚙️ Entorno: ${process.env.NODE_ENV || 'development'}`);
 }
 
+// GLOBAL ERROR HANDLING
 process.on('unhandledRejection', (reason, promise) => {
   const logger = new Logger('UnhandledRejection');
   logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
