@@ -158,6 +158,11 @@ export class AdminService {
     if (parsed.type) {
       where.type_user = { name_type: { equals: parsed.type, mode: 'insensitive' } };
     }
+
+    if (parsed.payment === 'true') where.status_event = true;
+    if (parsed.payment === 'false') where.status_event = false;
+
+    // =====================
     if (parsed.event === 'true') where.status_event = true;
     if (parsed.event === 'false') where.status_event = false;
 
@@ -192,7 +197,8 @@ export class AdminService {
       },
     };
 
-    const [total, rows] = await this.prisma.$transaction([
+    const [total_sin_filtro, total_filtro, rows] = await this.prisma.$transaction([
+      this.prisma.users.count(),
       this.prisma.users.count({ where }),
       this.prisma.users.findMany({
         where,
@@ -228,11 +234,68 @@ export class AdminService {
         eventEnabled: !!r.status_event,
         status_event: !!r.status_event,
         isBadgePrinted: !!r.is_badge_printed,
-        paymentStatus: r.status_event ? 'Pagado' : (paid ? 'Pagado' : 'No pagado'),
+        paymentStatus: r.status_event ? 'Pagado' : 'No pagado',
       };
     });
 
-    return { total, page, pageSize: take, data };
+    return {
+      total: total_sin_filtro,
+      total_filtro: total_filtro,
+      page,
+      pageSize: take,
+      data
+    };
+  }
+
+  // ============================================================
+  // 📌 Eliminar usuarios
+  // ============================================================
+  async deleteUser(id: number) {
+    const userId = BigInt(id);
+
+    const user = await this.prisma.users.findUnique({
+      where: { user_id: userId },
+      select: { user_id: true },
+    });
+
+    if (!user) throw new NotFoundException('Usuario no encontrado');
+
+    // Borrar tokens asociados
+    await this.prisma.verification_token.deleteMany({
+      where: { user_id: userId }
+    });
+
+    // Borrar asistencias
+    await this.prisma.attendance.deleteMany({
+      where: { user_id: userId }
+    });
+
+    // Borrar scores
+    await this.prisma.game_score.deleteMany({
+      where: { user_id: userId }
+    });
+
+    // Borrar redes sociales
+    await this.prisma.url_red_social.deleteMany({
+      where: { user_id: userId }
+    });
+
+    // Borrar perfiles de ponente
+    await this.prisma.speaker_profiles.deleteMany({
+      where: { user_id: userId }
+    });
+
+    // Borrar pagos
+    await this.prisma.payment.deleteMany({
+      where: { userId: userId }
+    });
+
+    // AHORA SÍ podemos borrar el usuario REALMENTE
+    await this.prisma.users.delete({
+      where: { user_id: userId }
+    });
+
+    return { message: 'Usuario eliminado correctamente', id };
   }
 
   // ============================================================
@@ -439,8 +502,6 @@ export class AdminService {
   // ============================================================
   // 🔍 1. Validación inicial
   // ============================================================
-
-  console.log("📩 IDS RECIBIDOS EN SERVICE:", ids);
 
   // Asegurar que realmente tengamos números
   const cleanIds = (ids ?? [])

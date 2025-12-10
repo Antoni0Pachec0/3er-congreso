@@ -4,6 +4,7 @@ import {
   Controller,
   DefaultValuePipe,
   Get,
+  Delete,
   Patch,
   Param,
   ParseIntPipe,
@@ -23,6 +24,14 @@ import { GenerateBadgesDto } from './dto/generate-badges.dto';
 @UseGuards(JwtAuthGuard)
 export class AdminController {
   constructor(private readonly adminService: AdminService) {}
+
+  // ============================================================
+  // 📌 Eliminar usuarios
+  // ============================================================
+  @Delete(':id')
+  async deleteUser(@Param('id', ParseIntPipe) id: number) {
+    return this.adminService.deleteUser(id);
+  }
 
   // ============================================================
   // 📌 SEND CERTIFICATES BY EMAIL (MASIVO)
