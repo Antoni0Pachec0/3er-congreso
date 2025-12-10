@@ -1,3 +1,4 @@
+// finance.controller.ts
 import {
   Controller,
   Param,
@@ -11,6 +12,8 @@ import {
   ParseFloatPipe,
   ParseIntPipe,
   UseGuards,
+  Header,
+  StreamableFile,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '@/auth/validation/guards/jwt.guard';
 import { FinanceService } from './finance.service';
@@ -55,6 +58,33 @@ export class FinanceController {
     },
   ) {
     return this.financeService.createCategory(body);
+  }
+
+  // ============================================================
+  // 📌 ACTUALIZAR CATEGORÍA
+  // PUT /admin/finance/categories/:id
+  // body: { nombre: string, descripcion?: string }
+  // ============================================================
+  @Put('categories/:id')
+  async updateCategory(
+    @Param('id', ParseIntPipe) id: number,
+    @Body()
+    body: {
+      nombre: string;
+      descripcion?: string;
+    },
+  ) {
+    return this.financeService.updateCategory(id, body);
+  }
+
+  // ============================================================
+  // 📌 ELIMINAR CATEGORÍA
+  // DELETE /admin/finance/categories/:id
+  // (solo se eliminará si no tiene movimientos asociados)
+  // ============================================================
+  @Delete('categories/:id')
+  async deleteCategory(@Param('id', ParseIntPipe) id: number) {
+    return this.financeService.deleteCategory(id);
   }
 
   // ============================================================
@@ -119,9 +149,32 @@ export class FinanceController {
   // DELETE /admin/finance/movements/:id
   // ============================================================
   @Delete('movements/:id')
-  async deleteMovement(
-    @Param('id', ParseIntPipe) id: number,
-  ) {
+  async deleteMovement(@Param('id', ParseIntPipe) id: number) {
     return this.financeService.deleteMovement(id);
+  }
+
+  // ============================================================
+  // 📌 GENERAR PDF DE MOVIMIENTOS
+  // GET /admin/finance/movements/pdf?tipo=GASTO&categoriaId=1
+  // - tipo: INGRESO | GASTO | ALL (opcional, default ALL)
+  // - categoriaId: número, opcional
+  // ============================================================
+  @Get('movements/pdf')
+  @Header('Content-Type', 'application/pdf')
+  @Header(
+    'Content-Disposition',
+    'attachment; filename="reporte-financiero.pdf"',
+  )
+  async exportMovementsPdf(
+    @Query('tipo') tipo: 'INGRESO' | 'GASTO' | 'ALL' = 'ALL',
+    @Query('categoriaId', new DefaultValuePipe(0), ParseIntPipe)
+    categoriaId: number,
+  ): Promise<StreamableFile> {
+    const buffer = await this.financeService.exportMovementsPdf({
+      tipo,
+      categoriaId: categoriaId > 0 ? categoriaId : undefined,
+    });
+
+    return new StreamableFile(buffer);
   }
 }

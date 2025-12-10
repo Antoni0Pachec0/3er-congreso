@@ -1,9 +1,18 @@
-import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+// finance.service.ts
+import {
+  Injectable,
+  BadRequestException,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '@prisma/prisma.service';
 import { Prisma } from '@prisma/client';
+import { join } from 'path';
+
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const PDFDocument = require('pdfkit');
 
 type ListMovementsArgs = {
-  tipo?: 'INGRESO' | 'GASTO';
+  tipo?: 'INGRESO' | 'GASTO' | 'ALL';
   categoriaId?: number;
 };
 
@@ -16,7 +25,9 @@ export class FinanceService {
   // ============================================================
   async getSummary(price: number) {
     if (Number.isNaN(price) || price <= 0) {
-      throw new BadRequestException('El precio del evento debe ser mayor a 0.');
+      throw new BadRequestException(
+        'El precio del evento debe ser mayor a 0.',
+      );
     }
 
     const paidUsersCount = await this.prisma.users.count({
@@ -72,7 +83,9 @@ export class FinanceService {
   // ============================================================
   async createCategory(dto: { nombre: string; descripcion?: string }) {
     if (!dto.nombre?.trim()) {
-      throw new BadRequestException('El nombre de la categoría es obligatorio.');
+      throw new BadRequestException(
+        'El nombre de la categoría es obligatorio.',
+      );
     }
 
     const created = await this.prisma.categoria_movimiento.create({
@@ -90,12 +103,77 @@ export class FinanceService {
   }
 
   // ============================================================
+  // ✏️ ACTUALIZAR CATEGORÍA
+  // ============================================================
+  async updateCategory(
+    id: number,
+    dto: { nombre: string; descripcion?: string },
+  ) {
+    if (!dto.nombre?.trim()) {
+      throw new BadRequestException(
+        'El nombre de la categoría es obligatorio.',
+      );
+    }
+
+    const exists = await this.prisma.categoria_movimiento.findUnique({
+      where: { id_categoria: BigInt(id) },
+    });
+
+    if (!exists) {
+      throw new NotFoundException('La categoría no existe.');
+    }
+
+    const updated = await this.prisma.categoria_movimiento.update({
+      where: { id_categoria: BigInt(id) },
+      data: {
+        nombre: dto.nombre.trim(),
+        descripcion: dto.descripcion?.trim() || null,
+      },
+    });
+
+    return {
+      id: Number(updated.id_categoria),
+      nombre: updated.nombre,
+      descripcion: updated.descripcion,
+    };
+  }
+
+  // ============================================================
+  // 🗑️ ELIMINAR CATEGORÍA (solo si no tiene movimientos)
+  // ============================================================
+  async deleteCategory(id: number) {
+    const exists = await this.prisma.categoria_movimiento.findUnique({
+      where: { id_categoria: BigInt(id) },
+    });
+
+    if (!exists) {
+      throw new NotFoundException('La categoría no existe.');
+    }
+
+    const count = await this.prisma.movimientos_financieros.count({
+      where: { id_categoria: BigInt(id) },
+    });
+
+    if (count > 0) {
+      throw new BadRequestException(
+        `No se puede eliminar la categoría porque tiene ${count} movimientos asociados.`,
+      );
+    }
+
+    await this.prisma.categoria_movimiento.delete({
+      where: { id_categoria: BigInt(id) },
+    });
+
+    return { success: true, message: 'Categoría eliminada correctamente.' };
+  }
+
+  // ============================================================
   // 📌 LISTAR MOVIMIENTOS
   // ============================================================
   async listMovements({ tipo, categoriaId }: ListMovementsArgs) {
     const where: Prisma.movimientos_financierosWhereInput = {};
 
-    if (tipo === 'INGRESO' || tipo === 'GASTO') {
+    if (tipo && tipo !== 'ALL') {
       where.tipo = tipo;
     }
 
@@ -127,6 +205,7 @@ export class FinanceService {
       monto: (m.monto as Prisma.Decimal).toNumber(),
       descripcion: m.descripcion,
       medio_pago: m.medio_pago,
+      id_categoria: m.id_categoria ? Number(m.id_categoria) : 0,
       categoria: m.categoria_movimiento
         ? {
             id: Number(m.categoria_movimiento.id_categoria),
@@ -203,6 +282,9 @@ export class FinanceService {
       monto: (created.monto as Prisma.Decimal).toNumber(),
       descripcion: created.descripcion,
       medio_pago: created.medio_pago,
+      id_categoria: created.id_categoria
+        ? Number(created.id_categoria)
+        : dto.id_categoria,
       categoria: created.categoria_movimiento
         ? {
             id: Number(created.categoria_movimiento.id_categoria),
@@ -273,11 +355,14 @@ export class FinanceService {
 
     return {
       id: Number(updated.id_movimiento),
-      tipo: updated.tipo,
+      tipo: updated.tipo as 'INGRESO' | 'GASTO',
       fecha: updated.fecha,
       monto: (updated.monto as Prisma.Decimal).toNumber(),
       descripcion: updated.descripcion,
       medio_pago: updated.medio_pago,
+      id_categoria: updated.id_categoria
+        ? Number(updated.id_categoria)
+        : dto.id_categoria,
       categoria: updated.categoria_movimiento
         ? {
             id: Number(updated.categoria_movimiento.id_categoria),
@@ -317,5 +402,122 @@ export class FinanceService {
     });
 
     return { success: true, message: 'Movimiento eliminado correctamente.' };
+  }
+
+  // ============================================================
+  // 📄 GENERAR PDF DE MOVIMIENTOS (CON MEMBRETE)
+  // ============================================================
+  async exportMovementsPdf(filters: ListMovementsArgs): Promise<Buffer> {
+    try {
+      const movimientos = await this.listMovements(filters);
+
+      return await new Promise<Buffer>((resolve, reject) => {
+        const doc = new PDFDocument({
+          size: 'LETTER',
+          margin: 40,
+        });
+
+        const chunks: Buffer[] = [];
+        doc.on('data', (chunk: Buffer) => chunks.push(chunk));
+        doc.on('end', () => resolve(Buffer.concat(chunks)));
+        doc.on('error', (err: Error) => reject(err));
+
+        // Fondo membretado (opcional)
+        try {
+          const bgPath = join(
+            process.cwd(),
+            'public',
+            'finance',
+            'report-bg.png',
+          );
+          doc.image(bgPath, 0, 0, {
+            width: doc.page.width,
+            height: doc.page.height,
+          });
+        } catch {
+          // Si no existe la imagen, solo se queda fondo blanco
+        }
+
+        // Encabezado
+        doc
+          .font('Helvetica-Bold')
+          .fontSize(18)
+          .fillColor('#000000')
+          .text('Reporte de movimientos financieros', {
+            align: 'center',
+          });
+
+        doc.moveDown(0.5);
+        doc
+          .font('Helvetica')
+          .fontSize(11)
+          .text(
+            `Tipo: ${
+              filters.tipo && filters.tipo !== 'ALL' ? filters.tipo : 'Todos'
+            } · Categoría: ${
+              filters.categoriaId ? filters.categoriaId : 'Todas'
+            }`,
+            { align: 'center' },
+          );
+
+        doc.moveDown(1);
+
+        // Encabezados de tabla
+        const startY = doc.y;
+        doc.fontSize(11).font('Helvetica-Bold');
+
+        doc.text('Fecha', 40, startY);
+        doc.text('Tipo', 110, startY);
+        doc.text('Descripción', 160, startY);
+        doc.text('Categoría', 330, startY);
+        doc.text('Medio', 430, startY);
+        doc.text('Monto', 500, startY, { width: 80, align: 'right' });
+
+        doc.moveTo(40, startY + 14).lineTo(560, startY + 14).stroke();
+
+        // Filas
+        doc.font('Helvetica').fontSize(10);
+        let y = startY + 20;
+        let total = 0;
+
+        for (const m of movimientos) {
+          if (y > doc.page.height - 60) {
+            doc.addPage();
+            y = 40;
+          }
+
+          const fechaStr = new Date(m.fecha).toLocaleDateString('es-MX', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+          });
+
+          doc.text(fechaStr, 40, y);
+          doc.text(m.tipo === 'INGRESO' ? 'Ingreso' : 'Gasto', 110, y);
+          doc.text(m.descripcion ?? '-', 160, y, { width: 160 });
+          doc.text(m.categoria?.nombre ?? '-', 330, y, { width: 90 });
+          doc.text(m.medio_pago ?? '-', 430, y, { width: 60 });
+          doc.text(m.monto.toFixed(2), 500, y, { width: 80, align: 'right' });
+
+          total += m.monto;
+          y += 18;
+        }
+
+        // Total
+        doc.moveDown(2);
+        doc.font('Helvetica-Bold').fontSize(12);
+        doc.text(`TOTAL: $${total.toFixed(2)}`, 400, y + 10, {
+          width: 180,
+          align: 'right',
+        });
+
+        doc.end();
+      });
+    } catch (err: any) {
+      // Esto se propagará como 400 con mensaje claro al frontend
+      throw new BadRequestException(
+        `Error al generar el PDF de movimientos: ${err?.message || 'Error desconocido.'}`,
+      );
+    }
   }
 }
