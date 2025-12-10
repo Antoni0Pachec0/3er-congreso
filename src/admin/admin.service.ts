@@ -1010,7 +1010,7 @@ Saludos cordiales.`,
     try {
       await this.prisma.users.updateMany({
         where: { user_id: { in: enviadosIds } },
-        data: { status: 'suspended' as status_user },
+        data: { status: 'active' as status_user },
       });
     } catch {
       // si falla el update, no rompemos la respuesta del envío
