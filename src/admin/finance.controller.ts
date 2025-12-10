@@ -153,6 +153,25 @@ export class FinanceController {
     return this.financeService.deleteMovement(id);
   }
 
+// ============================================================
+// 📌 GENERAR PDF DE ANÁLISIS GENERAL
+// GET /admin/finance/analysis/pdf?price=380
+// ============================================================
+@Get('analysis/pdf')
+@Header('Content-Type', 'application/pdf')
+@Header(
+  'Content-Disposition',
+  'attachment; filename="analisis-general-finanzas.pdf"',
+)
+async exportGeneralAnalysisPdf(
+  @Query('price', new DefaultValuePipe(380), ParseFloatPipe)
+  price: number,
+): Promise<StreamableFile> {
+  const buffer = await this.financeService.exportGeneralAnalysisPdf(price)
+  return new StreamableFile(buffer)
+}
+
+
   // ============================================================
   // 📌 GENERAR PDF DE MOVIMIENTOS
   // GET /admin/finance/movements/pdf?tipo=GASTO&categoriaId=1
