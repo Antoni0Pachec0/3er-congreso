@@ -599,7 +599,7 @@ export class FinanceService {
           cardsY,
           'Ingresos adicionales',
           `$ ${this.formatMoney(summary.totalIngresosDb)}`,
-          'Patrocinios, ventas, etc. registrados en BD',
+          'Patrocinios, ventas, etc. mas registros',
           '#E0F2FE', // azul muy claro
         );
 
@@ -611,7 +611,7 @@ export class FinanceService {
           cardsY,
           'Gastos del evento',
           `$ ${this.formatMoney(summary.totalGastosDb)}`,
-          'Costos registrados en BD',
+          'Costos registrados',
           '#FFE4E6', // rojo rosado suave
         );
 
@@ -681,7 +681,7 @@ export class FinanceService {
           .fontSize(10)
           .fillColor('#4B5563')
           .text(
-            `Ingresos totales (boletos + BD): $ ${this.formatMoney(
+            `Ingresos totales (boletos + ingresos independientes): $ ${this.formatMoney(
               totalIngresosTotales,
             )}`,
             marginX,
